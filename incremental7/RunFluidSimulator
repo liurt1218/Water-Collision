@@ -1,0 +1,2 @@
+#!/bin/bash
+./FluidSimulator inputs/fluid.json

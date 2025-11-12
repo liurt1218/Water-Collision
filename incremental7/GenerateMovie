@@ -1,0 +1,2 @@
+#!/bin/bash
+ffmpeg -r 25 -i test_image_%03d.png -c:v libx264 -vf fps=25 -pix_fmt yuv420p out.mp4

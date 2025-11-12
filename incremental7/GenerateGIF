@@ -1,0 +1,2 @@
+#!/bin/bash
+ffmpeg -i test_image_%03d.png out.gif
