@@ -5,100 +5,110 @@ import os
 ti.init(arch=ti.gpu, device_memory_fraction=0.8)
 
 # ==========================
-# 全局配置
+# Global configuration
 # ==========================
 dim = 3
 
-# 流体粒子：小水块
+# Fluid block size
 x, y, z = 0.96, 0.96, 0.24
-dx = 0.024
-nx, ny, nz = int(x / dx), int(y / dx), int(z / dx)
+
+# Particle diameter
+particle_diameter = 0.015
+
+# Total number of particles
+nx, ny, nz = (
+    int(x / particle_diameter),
+    int(y / particle_diameter),
+    int(z / particle_diameter),
+)
 n_fluid = nx * ny * nz
-dh = 2 * dx
+# Support radius
+support_radius = 2 * particle_diameter
+
+# Fluid params
+rho0 = 1000.0
 surface_tension = 0.04
 viscosity = 5
 
-# 刚体离散成粒子（用于 Versatile coupling）
+# Rigidbody particles
 rb_nx, rb_ny, rb_nz = 4, 4, 4
-n_rigid = rb_nx * rb_ny * rb_nz
+n_rigid_per_body = rb_nx * rb_ny * rb_nz
+n_rigid_bodies = 2
+n_rigid_total = n_rigid_per_body * n_rigid_bodies
 
-n_particles = n_fluid + n_rigid
+n_particles = n_fluid + n_rigid_total
 
+# Time step
 dt = 1e-3
-rho0 = 1000.0  # 目标密度
+
 g = ti.Vector([0.0, -9.81, 0.0])
 
-# DFSPH 参数（简化版）
+# DFSPH params
 max_iter_density = 1000
 max_iter_div = 1000
-max_error = 1e-4  # ρ* 误差阈值（相对）
-max_error_V = 1e-3  # divergence 误差阈值
+max_error = 1e-4
+max_error_V = 1e-3
 eps = 1e-5
 
-# 核半径
-h = 0.06
-
-# 域边界
+# Boundaries
 domain_min = ti.Vector([0.0, 0.0, 0.0])
 domain_max = ti.Vector([1.0, 1.0, 1.0])
 
-# 刚体信息（一个立方体）
-rigid_half = ti.Vector([0.08, 0.08, 0.08])
-rigid_mass = 3.0
+# Rigidbody
+rigid_half = ti.Vector([0.12, 0.12, 0.12])
+rigid_rho = 300.0
+rigid_mass = rigid_rho * rigid_half[0] * rigid_half[1] * rigid_half[2] * 8
 rigid_restitution = 0.3
+mu_friction = 0.3
 
 # ==========================
-# 字段定义
+# Fields
 # ==========================
-x = ti.Vector.field(dim, ti.f32, shape=n_particles)
-v = ti.Vector.field(dim, ti.f32, shape=n_particles)
-a = ti.Vector.field(dim, ti.f32, shape=n_particles)
-is_fluid = ti.field(ti.i32, shape=n_particles)  # 1=fluid, 0=rigid
-is_dynamic = ti.field(ti.i32, shape=n_particles)  # 1=参与动力学
+x = ti.Vector.field(dim, ti.f32, shape=n_particles)  # Pos
+v = ti.Vector.field(dim, ti.f32, shape=n_particles)  # Vel
+a = ti.Vector.field(dim, ti.f32, shape=n_particles)  # Acc
+is_fluid = ti.field(ti.i32, shape=n_particles)  # 1 = fluid, 0 = rigid
+is_dynamic = ti.field(ti.i32, shape=n_particles)
 rest_volume = ti.field(ti.f32, shape=n_particles)
 density = ti.field(ti.f32, shape=n_particles)
 
-# DFSPH 相关
+# DFSPH
 alpha = ti.field(ti.f32, shape=n_particles)
-density_star = ti.field(ti.f32, shape=n_particles)  # ρ*/ρ0
-density_deriv = ti.field(ti.f32, shape=n_particles)  # (Dρ/Dt)/ρ0
-kappa = ti.field(ti.f32, shape=n_particles)  # 常密度约束乘子
-kappa_v = ti.field(ti.f32, shape=n_particles)  # 无散度约束乘子
+density_star = ti.field(ti.f32, shape=n_particles)
+density_deriv = ti.field(ti.f32, shape=n_particles)
+kappa = ti.field(ti.f32, shape=n_particles)
+kappa_v = ti.field(ti.f32, shape=n_particles)
 
-# 刚体整体状态（只平移）
-rb_pos = ti.Vector.field(dim, ti.f32, shape=())
-rb_vel = ti.Vector.field(dim, ti.f32, shape=())
-rb_force = ti.Vector.field(dim, ti.f32, shape=())
+# Rigidbody translation
+rb_pos = ti.Vector.field(dim, ti.f32, shape=n_rigid_bodies)
+rb_vel = ti.Vector.field(dim, ti.f32, shape=n_rigid_bodies)
+rb_force = ti.Vector.field(dim, ti.f32, shape=n_rigid_bodies)
 
-# 刚体局部坐标（以刚体中心为 0）
-rb_local = ti.Vector.field(dim, ti.f32, shape=n_rigid)
+# Rotation
+rb_omega = ti.Vector.field(dim, ti.f32, shape=n_rigid_bodies)
+rb_torque = ti.Vector.field(dim, ti.f32, shape=n_rigid_bodies)
+rb_rot = ti.Matrix.field(dim, dim, ti.f32, shape=n_rigid_bodies)
+I_body = ti.Matrix.field(dim, dim, ti.f32, shape=n_rigid_bodies)
+I_body_inv = ti.Matrix.field(dim, dim, ti.f32, shape=n_rigid_bodies)
 
-rb_omega = ti.Vector.field(dim, ti.f32, shape=())  # 角速度
-rb_torque = ti.Vector.field(dim, ti.f32, shape=())  # 力矩
-rb_rot = ti.Matrix.field(dim, dim, ti.f32, shape=())  # 刚体姿态矩阵 R
+rb_local = ti.Vector.field(dim, ti.f32, shape=n_rigid_per_body)
 
-# 刚体在 body frame 下的转动惯量
-I_body = ti.Matrix.field(dim, dim, ti.f32, shape=())
-I_body_inv = ti.Matrix.field(dim, dim, ti.f32, shape=())
+# Map particles to bodies
+rigid_id = ti.field(ti.i32, shape=n_particles)
 
-# 刚体局部坐标（以刚体中心为 0）
-rb_local = ti.Vector.field(dim, ti.f32, shape=n_rigid)
-
-# 用于渲染刚体 cube（局部顶点 & 世界顶点）
+# Rendering the cube
 cube_local = ti.Vector.field(3, ti.f32, shape=8)
-
-# 用于渲染刚体 cube
 cube_vertices = ti.Vector.field(3, ti.f32, shape=8)
-cube_indices = ti.field(ti.i32, shape=36)  # 12 triangles * 3
+cube_indices = ti.field(ti.i32, shape=36)  # Triangular mesh
 
 
 # ==========================
-# 核函数（参考项目里的 cubic kernel）
+# Kernels
 # ==========================
 @ti.func
 def kernel_W(r):
-    h_ = ti.static(h)  # 捕获 h
-    dim_ = ti.static(dim)  # 捕获 dim
+    h_ = ti.static(support_radius)
+    dim_ = ti.static(dim)
 
     res = 0.0
 
@@ -126,7 +136,7 @@ def kernel_W(r):
 @ti.func
 def kernel_grad(R):
     dim_ = ti.static(dim)
-    h_ = ti.static(h)
+    h_ = ti.static(support_radius)
 
     R_mod = R.norm()
     grad = ti.Vector.zero(ti.f32, dim_)
@@ -154,58 +164,58 @@ def kernel_grad(R):
 
 
 # ==========================
-# 初始化
+# Initialize
 # ==========================
 @ti.kernel
 def init_fluid_and_rigid():
-    # fluid block
+    # Fluid block
     base = ti.Vector([0.02, 0.02, 0.02])
     for i in range(n_fluid):
         ix = i % nx
         iy = (i // nx) % ny
         iz = i // (nx * ny)
-        x[i] = base + ti.Vector([ix + 0.5, iy + 0.5, iz + 0.5]) * dx
+        x[i] = base + ti.Vector([ix + 0.5, iy + 0.5, iz + 0.5]) * particle_diameter
         v[i] = ti.Vector.zero(ti.f32, dim)
         a[i] = ti.Vector.zero(ti.f32, dim)
         is_fluid[i] = 1
         is_dynamic[i] = 1
+        rest_volume[i] = particle_diameter**3
+        rigid_id[i] = -1
 
-        # 用统一 rest_volume
-        rest_volume[i] = 0.8 * dx**3
-
-    # rigid cube 粒子（局部坐标）
+    # Rigid cube
     rb_dx = 2.0 * rigid_half[0] / rb_nx
-    lb = -rigid_half + 0.5 * rb_dx  # 左下角 + 半格
-
-    # --- 这里定义刚体中心：x,z 随便放，y = rigid_half.y 就是贴在地面 ---
-    center = ti.Vector([0.7, rigid_half[1], 0.5])  # (0.7, 0.08, 0.5)
-
-    for k in range(n_rigid):
+    lb = -rigid_half + 0.5 * rb_dx
+    for k in range(n_rigid_per_body):
         ix = k % rb_nx
         iy = (k // rb_nx) % rb_ny
         iz = k // (rb_nx * rb_ny)
-        local = lb + ti.Vector([ix, iy, iz]) * rb_dx
-        rb_local[k] = local
+        rb_local[k] = lb + ti.Vector([ix, iy, iz]) * rb_dx
 
-        pid = n_fluid + k
-        # 初始刚体中心 = center
-        x[pid] = center + local
-        v[pid] = ti.Vector.zero(ti.f32, dim)
-        a[pid] = ti.Vector.zero(ti.f32, dim)
-        is_fluid[pid] = 0
-        is_dynamic[pid] = 1
-        rest_volume[pid] = (
-            2 * rigid_half[0] * 2 * rigid_half[1] * 2 * rigid_half[2]
-        ) / n_rigid
+    # Rigidbodies
+    for b in range(n_rigid_bodies):
+        center = ti.Vector([0.5, rigid_half[1] + 0.3 * b, 0.5])
+        rb_pos[b] = center
+        rb_vel[b] = ti.Vector.zero(ti.f32, dim)
+        rb_force[b] = ti.Vector.zero(ti.f32, dim)
+        rb_omega[b] = ti.Vector.zero(ti.f32, dim)
+        rb_torque[b] = ti.Vector.zero(ti.f32, dim)
 
-    rb_pos[None] = center
-    rb_vel[None] = ti.Vector.zero(ti.f32, dim)  # 初速度 = 0
-    rb_force[None] = ti.Vector.zero(ti.f32, dim)
+        box_volume = 2 * rigid_half[0] * 2 * rigid_half[1] * 2 * rigid_half[2]
+
+        for k in range(n_rigid_per_body):
+            pid = n_fluid + b * n_rigid_per_body + k
+            local = rb_local[k]
+            x[pid] = center + local
+            v[pid] = ti.Vector.zero(ti.f32, dim)
+            a[pid] = ti.Vector.zero(ti.f32, dim)
+            is_fluid[pid] = 0
+            is_dynamic[pid] = 1
+            rest_volume[pid] = box_volume / n_rigid_per_body
+            rigid_id[pid] = b
 
 
 @ti.kernel
 def init_rigid_orientation_and_cube():
-    # 刚体转动惯量（均匀长方体），在 body frame 下
     a = 2.0 * rigid_half[0]
     b = 2.0 * rigid_half[1]
     c = 2.0 * rigid_half[2]
@@ -214,14 +224,14 @@ def init_rigid_orientation_and_cube():
     Iyy = (1.0 / 12.0) * rigid_mass * (a * a + c * c)
     Izz = (1.0 / 12.0) * rigid_mass * (a * a + b * b)
 
-    I_body[None] = ti.Matrix([[Ixx, 0.0, 0.0], [0.0, Iyy, 0.0], [0.0, 0.0, Izz]])
-    I_body_inv[None] = I_body[None].inverse()
+    for body in range(n_rigid_bodies):
+        I_body[body] = ti.Matrix([[Ixx, 0.0, 0.0], [0.0, Iyy, 0.0], [0.0, 0.0, Izz]])
+        I_body_inv[body] = I_body[body].inverse()
 
-    rb_rot[None] = ti.Matrix.identity(ti.f32, 3)
-    rb_omega[None] = ti.Vector.zero(ti.f32, 3)
-    rb_torque[None] = ti.Vector.zero(ti.f32, 3)
+        rb_rot[body] = ti.Matrix.identity(ti.f32, 3)
+        rb_omega[body] = ti.Vector.zero(ti.f32, 3)
+        rb_torque[body] = ti.Vector.zero(ti.f32, 3)
 
-    # cube 局部 8 个顶点（以中心为原点）
     hx, hy, hz = rigid_half[0], rigid_half[1], rigid_half[2]
     cube_local[0] = ti.Vector([-hx, -hy, -hz])
     cube_local[1] = ti.Vector([+hx, -hy, -hz])
@@ -235,8 +245,6 @@ def init_rigid_orientation_and_cube():
 
 @ti.kernel
 def init_cube_indices():
-    # 立方体 8 顶点索引：0~7
-    # 12 个三角形，展平成 36 个 index
     # front
     cube_indices[0] = 0
     cube_indices[1] = 1
@@ -282,15 +290,15 @@ def init_cube_indices():
 
 
 @ti.kernel
-def update_cube_vertices():
-    c = rb_pos[None]
-    R = rb_rot[None]
+def update_cube_vertices(body: ti.i32):
+    c = rb_pos[body]
+    R = rb_rot[body]
     for i in range(8):
         cube_vertices[i] = c + R @ cube_local[i]
 
 
 # ==========================
-# DFSPH 子程序
+# DFSPH
 # ==========================
 @ti.kernel
 def compute_density():
@@ -302,7 +310,7 @@ def compute_density():
                 if j != i:
                     xj = x[j]
                     r = (xi - xj).norm()
-                    if r < dh:
+                    if r < support_radius:
                         rho += rest_volume[j] * kernel_W(r)
             density[i] = rho * rho0
 
@@ -319,13 +327,13 @@ def compute_alpha():
                     continue
                 xj = x[j]
                 R = xi - xj
-                if R.norm() < dh:
+                if R.norm() < support_radius:
                     grad_pj = -rest_volume[j] * kernel_grad(R)
                     if is_fluid[j] == 1:
                         sum_grad_pk += grad_pj.norm_sqr()
                         grad_pi += grad_pj
                     else:
-                        # rigid neighbor: 只累加到 grad_pi，不算平方和
+                        # rigid neighbor
                         grad_pi += grad_pj
             sum_grad_pk += grad_pi.norm_sqr()
             factor = 0.0
@@ -347,7 +355,7 @@ def compute_density_star():
                 xj = x[j]
                 vj = v[j]
                 R = xi - xj
-                if R.norm() < dh:
+                if R.norm() < support_radius:
                     delta += rest_volume[j] * (vi - vj).dot(kernel_grad(R))
             density_adv = density[i] / rho0 + dt * delta
             density_star[i] = max(density_adv, 1.0)
@@ -363,7 +371,6 @@ def compute_kappa():
 
 @ti.kernel
 def correct_density_error_step():
-    # 对应 DFSPHSolver.correct_density_error_task
     for i in range(n_particles):
         if is_fluid[i] == 1:
             ki = kappa[i]
@@ -374,7 +381,7 @@ def correct_density_error_step():
                     continue
                 xj = x[j]
                 R = xi - xj
-                if R.norm() < dh:
+                if R.norm() < support_radius:
                     grad_pj = rest_volume[j] * kernel_grad(R)
                     if is_fluid[j] == 1:
                         kj = kappa[j]
@@ -383,11 +390,10 @@ def correct_density_error_step():
                             rhoj = density[j]
                             v[i] -= grad_pj * (ki / rhoi + kj / rhoj) * rho0
                     else:
-                        # rigid neighbor：k_j = k_i
+                        # rigid neighbor
                         ksum = ki
                         if abs(ksum) > eps * dt:
                             v[i] -= grad_pj * (ki / rhoi) * rho0
-                            # 反作用力加到刚体上（忽略扭矩，只算平移）
                             force_j = (
                                 grad_pj
                                 * (ki / rhoi)
@@ -395,10 +401,11 @@ def correct_density_error_step():
                                 * (rest_volume[i] * rho0)
                                 / dt
                             )
-                            ti.atomic_add(rb_force[None], force_j)
-                            r = x[j] - rb_pos[None]
+                            rb = rigid_id[j]
+                            ti.atomic_add(rb_force[rb], force_j)
+                            r = x[j] - rb_pos[rb]
                             torque_j = r.cross(force_j)
-                            ti.atomic_add(rb_torque[None], torque_j)
+                            ti.atomic_add(rb_torque[rb], torque_j)
 
 
 @ti.kernel
@@ -443,12 +450,10 @@ def compute_density_derivative():
                 xj = x[j]
                 vj = v[j]
                 R = xi - xj
-                if R.norm() < dh:
+                if R.norm() < support_radius:
                     d_adv += rest_volume[j] * (vi - vj).dot(kernel_grad(R))
                     n_nbr += 1
-            # 只修正正的 divergence
             d_adv = max(d_adv, 0.0)
-            # 简单的粒子缺失判据
             if dim == 3:
                 if n_nbr < 20:
                     d_adv = 0.0
@@ -457,7 +462,6 @@ def compute_density_derivative():
 
 @ti.kernel
 def compute_kappa_v():
-    # 注意这里不除 dt
     max_kappa = 0.0
     for i in range(n_particles):
         if is_fluid[i] == 1:
@@ -481,7 +485,7 @@ def correct_divergence_step():
                     continue
                 xj = x[j]
                 R = xi - xj
-                if R.norm() < dh:
+                if R.norm() < support_radius:
                     grad_pj = rest_volume[j] * kernel_grad(R)
                     if is_fluid[j] == 1:
                         kj = kappa_v[j]
@@ -500,31 +504,12 @@ def correct_divergence_step():
                                 * (rest_volume[i] * rho0)
                                 / dt
                             )
-                            ti.atomic_add(rb_force[None], force_j)
-                            r = x[j] - rb_pos[None]
+                            rb = rigid_id[j]
+                            ti.atomic_add(rb_force[rb], force_j)
+                            r = x[j] - rb_pos[rb]
                             torque_j = r.cross(force_j)
-                            ti.atomic_add(rb_torque[None], torque_j)
+                            ti.atomic_add(rb_torque[rb], torque_j)
             v[i] += dv
-
-
-@ti.func
-def skew(v):
-    # 生成 [v]_x 反对称矩阵，用于 R' = [ω]_x R
-    return ti.Matrix([[0.0, -v.z, v.y], [v.z, 0.0, -v.x], [-v.y, v.x, 0.0]])
-
-
-@ti.func
-def orthonormalize(R):
-    # 简单 Gram-Schmidt，保证 R 保持正交
-    c0 = R[:, 0]
-    c1 = R[:, 1]
-    c2 = R[:, 2]
-
-    c0 = c0.normalized()
-    c1 = (c1 - c0.dot(c1) * c0).normalized()
-    c2 = c0.cross(c1)
-
-    return ti.Matrix.cols([c0, c1, c2])
 
 
 @ti.kernel
@@ -557,16 +542,14 @@ def correct_divergence_error():
 
 
 # ==========================
-# 重力 + 刚体更新 + 边界
+# Non-pressure acceleration
 # ==========================
 @ti.kernel
 def compute_non_pressure_acceleration():
     for i in range(n_particles):
-        # 默认加速度先置零
         ai = ti.Vector.zero(ti.f32, dim)
 
         if is_fluid[i] == 1:
-            # 重力
             ai = g
             xi = x[i]
             vi = v[i]
@@ -579,9 +562,8 @@ def compute_non_pressure_acceleration():
                 R = xi - xj
                 r = R.norm()
 
-                if r < dh:
-                    # ---------- 你的短程排斥力 ----------
-                    dia2 = dx * dx
+                if r < support_radius:
+                    dia2 = particle_diameter * particle_diameter
                     R2 = ti.math.dot(R, R)
                     if R2 > dia2:
                         ai -= (
@@ -597,17 +579,12 @@ def compute_non_pressure_acceleration():
                             / rest_volume[i]
                             * rest_volume[j]
                             * R
-                            * kernel_W(dx)  # 这里修掉原来的 bug
+                            * kernel_W(particle_diameter)
                         )
-
-                    # ---------- 粘性项（只对流体邻居生效） ----------
                     if is_fluid[j] == 1:
                         vj = v[j]
                         vij = vj - vi
-                        # 简单的“拉普拉斯型”粘性：和速度差成正比
                         ai += viscosity * rest_volume[j] * vij * kernel_W(r)
-
-        # 写回
         a[i] = ai
 
 
@@ -625,67 +602,233 @@ def update_fluid_position():
             x[i] += dt * v[i]
 
 
+@ti.func
+def skew(v):
+    return ti.Matrix([[0.0, -v.z, v.y], [v.z, 0.0, -v.x], [-v.y, v.x, 0.0]])
+
+
+@ti.func
+def orthonormalize(R):
+    c0 = R[:, 0]
+    c1 = R[:, 1]
+    c2 = R[:, 2]
+
+    c0 = c0.normalized()
+    c1 = (c1 - c0.dot(c1) * c0).normalized()
+    c2 = c0.cross(c1)
+
+    return ti.Matrix.cols([c0, c1, c2])
+
+
+@ti.func
+def support_distance_on_box(R, n_world):
+    n_local = R.transpose() @ n_world
+    half = rigid_half
+    return (
+        ti.abs(n_local[0]) * half[0]
+        + ti.abs(n_local[1]) * half[1]
+        + ti.abs(n_local[2]) * half[2]
+    )
+
+
+@ti.func
+def contact_offset_on_box(R, dir_world):
+    dir_local = R.transpose() @ dir_world
+    half = rigid_half
+
+    t_min = 1e8
+    for k in ti.static(range(3)):
+        ak = dir_local[k]
+        if ti.abs(ak) > 1e-6:
+            tk = half[k] / ti.abs(ak)
+            if tk < t_min:
+                t_min = tk
+
+    if t_min > 1e7:
+        t_min = 0.0
+
+    contact_local = dir_local * t_min
+    contact_world = R @ contact_local
+    return contact_world
+
+
+@ti.kernel
+def handle_rigid_collisions():
+    inv_m = 1.0 / rigid_mass
+    e = rigid_restitution
+    mu = mu_friction
+
+    for b1 in range(n_rigid_bodies):
+        for b2 in range(b1 + 1, n_rigid_bodies):
+            c1 = rb_pos[b1]
+            c2 = rb_pos[b2]
+            d = c2 - c1
+            dist = d.norm()
+            if dist <= 1e-6:
+                continue
+            n = d / dist
+
+            R1 = rb_rot[b1]
+            R2 = rb_rot[b2]
+
+            s1 = support_distance_on_box(R1, n)
+            s2 = support_distance_on_box(R2, -n)
+            min_dist = s1 + s2
+
+            if dist < min_dist:
+                penetration = min_dist - dist
+                corr = 0.5 * penetration * n
+                rb_pos[b1] -= corr
+                rb_pos[b2] += corr
+
+                c1 = rb_pos[b1]
+                c2 = rb_pos[b2]
+
+                offset1 = contact_offset_on_box(R1, n)
+                offset2 = contact_offset_on_box(R2, -n)
+
+                p1 = c1 + offset1
+                p2 = c2 + offset2
+
+                dc = p2 - p1
+                dc_len = dc.norm()
+                if dc_len > 1e-6:
+                    n = dc / dc_len
+
+                r1 = p1 - c1
+                r2 = p2 - c2
+
+                v1 = rb_vel[b1]
+                v2 = rb_vel[b2]
+                w1 = rb_omega[b1]
+                w2 = rb_omega[b2]
+
+                v1c = v1 + w1.cross(r1)
+                v2c = v2 + w2.cross(r2)
+
+                v_rel = v2c - v1c
+                v_rel_n = v_rel.dot(n)
+
+                if v_rel_n < 0.0:
+                    I1_inv = I_body_inv[b1]
+                    I2_inv = I_body_inv[b2]
+
+                    rn1 = r1.cross(n)
+                    rn2 = r2.cross(n)
+
+                    ang_term1 = (I1_inv @ rn1).cross(r1).dot(n)
+                    ang_term2 = (I2_inv @ rn2).cross(r2).dot(n)
+                    denom_n = 2.0 * inv_m + ang_term1 + ang_term2 + 1e-6
+
+                    j_n = -(1.0 + e) * v_rel_n / denom_n
+                    J_n = j_n * n
+
+                    rb_vel[b1] -= J_n * inv_m
+                    rb_vel[b2] += J_n * inv_m
+
+                    delta_L1_n = r1.cross(-J_n)
+                    delta_L2_n = r2.cross(+J_n)
+                    rb_omega[b1] += I1_inv @ delta_L1_n
+                    rb_omega[b2] += I2_inv @ delta_L2_n
+
+                    v1 = rb_vel[b1]
+                    v2 = rb_vel[b2]
+                    w1 = rb_omega[b1]
+                    w2 = rb_omega[b2]
+
+                    v1c = v1 + w1.cross(r1)
+                    v2c = v2 + w2.cross(r2)
+
+                    v_rel = v2c - v1c
+                    v_rel_n2 = v_rel.dot(n)
+                    v_rel_t = v_rel - v_rel_n2 * n
+                    vt_len = v_rel_t.norm()
+
+                    if vt_len > 1e-6:
+                        t_dir = v_rel_t / vt_len
+
+                        rt1 = r1.cross(t_dir)
+                        rt2 = r2.cross(t_dir)
+
+                        ang_term1_t = (I1_inv @ rt1).cross(r1).dot(t_dir)
+                        ang_term2_t = (I2_inv @ rt2).cross(r2).dot(t_dir)
+                        denom_t = 2.0 * inv_m + ang_term1_t + ang_term2_t + 1e-6
+
+                        j_t_raw = -vt_len / denom_t
+
+                        max_j_t = mu * ti.abs(j_n)
+                        j_t = j_t_raw
+                        if j_t > max_j_t:
+                            j_t = max_j_t
+                        if j_t < -max_j_t:
+                            j_t = -max_j_t
+
+                        J_t = j_t * t_dir
+
+                        rb_vel[b1] -= J_t * inv_m
+                        rb_vel[b2] += J_t * inv_m
+
+                        delta_L1_t = r1.cross(-J_t)
+                        delta_L2_t = r2.cross(+J_t)
+                        rb_omega[b1] += I1_inv @ delta_L1_t
+                        rb_omega[b2] += I2_inv @ delta_L2_t
+
+
 @ti.kernel
 def rigid_step():
-    vel = rb_vel[None]
-    pos = rb_pos[None]
-    force = rb_force[None]
+    for b in range(n_rigid_bodies):
+        vel = rb_vel[b]
+        pos = rb_pos[b]
+        force = rb_force[b]
 
-    omega = rb_omega[None]
-    torque = rb_torque[None]
-    R = rb_rot[None]
+        omega = rb_omega[b]
+        torque = rb_torque[b]
+        R = rb_rot[b]
 
-    I_b = I_body[None]
-    I_b_inv = I_body_inv[None]
+        I_b = I_body[b]
+        I_b_inv = I_body_inv[b]
 
-    # ---------- 平动部分 ----------
-    vel += dt * (force / rigid_mass + g)
-    pos += dt * vel
+        vel += dt * (force / rigid_mass + g)
+        pos += dt * vel
 
-    # ---------- 转动部分 ----------
-    # 世界坐标下的转动惯量
-    I_world = R @ I_b @ R.transpose()
-    I_world_inv = R @ I_b_inv @ R.transpose()
+        I_world = R @ I_b @ R.transpose()
+        I_world_inv = R @ I_b_inv @ R.transpose()
 
-    # 角加速度：I ωdot = τ - ω × (I ω)
-    ang_acc = I_world_inv @ (torque - omega.cross(I_world @ omega))
-    omega += dt * ang_acc
+        ang_acc = I_world_inv @ (torque - omega.cross(I_world @ omega))
+        omega += dt * ang_acc
 
-    # 积分姿态矩阵：R' = [ω]_x R
-    R += dt * skew(omega) @ R
-    R = orthonormalize(R)
+        R += dt * skew(omega) @ R
+        R = orthonormalize(R)
 
-    # ---------- 边界（只对质心做，简单处理） ----------
-    for k in ti.static(range(dim)):
-        if pos[k] < domain_min[k] + rigid_half[k]:
-            pos[k] = domain_min[k] + rigid_half[k]
-            vel[k] *= -rigid_restitution
-        if pos[k] > domain_max[k] - rigid_half[k]:
-            pos[k] = domain_max[k] - rigid_half[k]
-            vel[k] *= -rigid_restitution
+        for k in ti.static(range(dim)):
+            if pos[k] < domain_min[k] + rigid_half[k]:
+                pos[k] = domain_min[k] + rigid_half[k]
+                vel[k] *= -rigid_restitution
+            if pos[k] > domain_max[k] - rigid_half[k]:
+                pos[k] = domain_max[k] - rigid_half[k]
+                vel[k] *= -rigid_restitution
 
-    rb_vel[None] = vel
-    rb_pos[None] = pos
-    rb_omega[None] = omega
-    rb_rot[None] = R
-
-    rb_force[None] = ti.Vector.zero(ti.f32, dim)
-    rb_torque[None] = ti.Vector.zero(ti.f32, dim)
+        rb_vel[b] = vel
+        rb_pos[b] = pos
+        rb_omega[b] = omega
+        rb_rot[b] = R
+        rb_force[b] = ti.Vector.zero(ti.f32, dim)
+        rb_torque[b] = ti.Vector.zero(ti.f32, dim)
 
 
 @ti.kernel
 def renew_rigid_particles():
-    c = rb_pos[None]
-    R = rb_rot[None]
-    omega = rb_omega[None]
+    for b in range(n_rigid_bodies):
+        c = rb_pos[b]
+        R = rb_rot[b]
+        omega = rb_omega[b]
 
-    for k in range(n_rigid):
-        pid = n_fluid + k
-        local = rb_local[k]
-        offset = R @ local  # 旋转到世界坐标
-        x[pid] = c + offset
-        # 刚体上每个点的速度 = 平移速度 + 角速度 × 半径向量
-        v[pid] = rb_vel[None] + omega.cross(offset)
+        for k in range(n_rigid_per_body):
+            pid = n_fluid + b * n_rigid_per_body + k
+            local = rb_local[k]
+            offset = R @ local
+            x[pid] = c + offset
+            v[pid] = rb_vel[b] + omega.cross(offset)
 
 
 @ti.kernel
@@ -705,32 +848,28 @@ def enforce_boundary():
             v[i] = vi
 
 
-def compute_rigid_particle_volume():
-    pass
-
-
 # ==========================
-# 单步模拟（模仿 DFSPHSolver._step）
+# Simulation step
 # ==========================
 def step():
     compute_non_pressure_acceleration()
     update_fluid_velocity()
-    correct_density_error()  # 常密度 DFSPH
+    correct_density_error()
 
     update_fluid_position()
 
     rigid_step()
+    handle_rigid_collisions()
     renew_rigid_particles()
 
     enforce_boundary()
     compute_density()
     compute_alpha()
-    correct_divergence_error()  # 无散度 DFSPH
-    compute_rigid_particle_volume()
+    correct_divergence_error()
 
 
 # ==========================
-# 主程序：headless 渲染到 PNG
+# Main program
 # ==========================
 def main():
     os.makedirs("frames", exist_ok=True)
@@ -746,14 +885,13 @@ def main():
     canvas = window.get_canvas()
     scene = window.get_scene()
 
-    n_frames = 600
+    n_frames = 400
     substeps = 10
 
     for frame in range(n_frames):
         for _ in range(substeps):
             step()
 
-        # 设置相机
         camera = ti.ui.Camera()
         camera.position(1.6, 1.0, 1.6)
         camera.lookat(0.5, 0.4, 0.5)
@@ -762,18 +900,20 @@ def main():
         scene.ambient_light((0.4, 0.4, 0.4))
         scene.point_light((2.0, 3.0, 2.0), (1.0, 1.0, 1.0))
 
-        # 画 fluid 粒子
         scene.particles(x, radius=0.01, index_count=n_fluid, color=(0.2, 0.6, 1.0))
 
-        # 刚体 cube mesh
-        update_cube_vertices()
-        scene.mesh(cube_vertices, indices=cube_indices, color=(1.0, 0.5, 0.2))
+        for b in range(n_rigid_bodies):
+            update_cube_vertices(b)
+            scene.mesh(cube_vertices, indices=cube_indices, color=(1.0, 0.5, 0.2))
 
         canvas.scene(scene)
 
         fname = f"frames/dambreak/frame_{frame:04d}.png"
         window.save_image(fname)
         print("saved", fname)
+    os.system(
+        "ffmpeg -framerate 30 -i frames/dambreak/frame_%04d.png -c:v libx264 -pix_fmt yuv420p dambreak.mp4 -y"
+    )
 
 
 if __name__ == "__main__":

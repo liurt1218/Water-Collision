@@ -5,84 +5,84 @@ import os
 ti.init(arch=ti.gpu, device_memory_fraction=0.8)
 
 # ==========================
-# 全局配置
+# Global configuration
 # ==========================
 dim = 3
 
-# 流体粒子：小水块
+# Fluid block size
 x, y, z = 0.96, 0.96, 0.12
-dx = 0.025
+dx = 0.024
 nx, ny, nz = int(x / dx), int(y / dx), int(z / dx)
 n_fluid = nx * ny * nz
 dh = 2 * dx
 
-# 刚体离散成粒子（用于 Versatile coupling）
+# Rigidbody particles
 rb_nx, rb_ny, rb_nz = 4, 4, 4
 n_rigid = rb_nx * rb_ny * rb_nz
 
 n_particles = n_fluid + n_rigid
 
 dt = 1e-3
-rho0 = 1000.0  # 目标密度
+rho0 = 1000.0
 g = ti.Vector([0.0, -9.81, 0.0])
 
-# DFSPH 参数（简化版）
+# DFSPH
 max_iter_density = 1000
 max_iter_div = 1000
-max_error = 1e-4  # ρ* 误差阈值（相对）
-max_error_V = 1e-3  # divergence 误差阈值
+max_error = 1e-4
+max_error_V = 1e-3
 eps = 1e-5
 
-# 核半径
+# Kernel radius
 h = 0.06
 
-# 域边界
+# Domain
 domain_min = ti.Vector([0.0, 0.0, 0.0])
 domain_max = ti.Vector([1.0, 1.0, 1.0])
 
-# 刚体信息（一个立方体）
+# Rigidbody
 rigid_half = ti.Vector([0.08, 0.08, 0.08])
 rigid_mass = 5.0
 rigid_restitution = 0.3
 
 # ==========================
-# 字段定义
+# Fields
 # ==========================
 x = ti.Vector.field(dim, ti.f32, shape=n_particles)
 v = ti.Vector.field(dim, ti.f32, shape=n_particles)
 a = ti.Vector.field(dim, ti.f32, shape=n_particles)
-is_fluid = ti.field(ti.i32, shape=n_particles)  # 1=fluid, 0=rigid
-is_dynamic = ti.field(ti.i32, shape=n_particles)  # 1=参与动力学
+is_fluid = ti.field(ti.i32, shape=n_particles)
+is_dynamic = ti.field(ti.i32, shape=n_particles)
 rest_volume = ti.field(ti.f32, shape=n_particles)
 density = ti.field(ti.f32, shape=n_particles)
 
-# DFSPH 相关
+# DFSPH
 alpha = ti.field(ti.f32, shape=n_particles)
-density_star = ti.field(ti.f32, shape=n_particles)  # ρ*/ρ0
-density_deriv = ti.field(ti.f32, shape=n_particles)  # (Dρ/Dt)/ρ0
-kappa = ti.field(ti.f32, shape=n_particles)  # 常密度约束乘子
-kappa_v = ti.field(ti.f32, shape=n_particles)  # 无散度约束乘子
+density_star = ti.field(ti.f32, shape=n_particles)
+density_deriv = ti.field(ti.f32, shape=n_particles)
+kappa = ti.field(ti.f32, shape=n_particles)
+kappa_v = ti.field(ti.f32, shape=n_particles)
 
-# 刚体整体状态（只平移）
+# Translation
 rb_pos = ti.Vector.field(dim, ti.f32, shape=())
 rb_vel = ti.Vector.field(dim, ti.f32, shape=())
 rb_force = ti.Vector.field(dim, ti.f32, shape=())
 
-# 刚体局部坐标（以刚体中心为 0）
+# Local
 rb_local = ti.Vector.field(dim, ti.f32, shape=n_rigid)
 
-# 用于渲染刚体 cube
+# Rendering
 cube_vertices = ti.Vector.field(3, ti.f32, shape=8)
 cube_indices = ti.field(ti.i32, shape=36)  # 12 triangles * 3
 
 
 # ==========================
-# 核函数（参考项目里的 cubic kernel）
+# Kernels
 # ==========================
 @ti.func
 def kernel_W(r):
-    h_ = ti.static(h)  # 捕获 h
-    dim_ = ti.static(dim)  # 捕获 dim
+    h_ = ti.static(h)
+    dim_ = ti.static(dim)
 
     res = 0.0
 
@@ -138,11 +138,11 @@ def kernel_grad(R):
 
 
 # ==========================
-# 初始化
+# Initialization
 # ==========================
 @ti.kernel
 def init_fluid_and_rigid():
-    # fluid block
+    # Fluid block
     base = ti.Vector([0.02, 0.02, 0.02])
     for i in range(n_fluid):
         ix = i % nx
@@ -154,15 +154,11 @@ def init_fluid_and_rigid():
         is_fluid[i] = 1
         is_dynamic[i] = 1
 
-        # 用统一 rest_volume
         rest_volume[i] = dx**3
 
-    # rigid cube 粒子（局部坐标）
     rb_dx = 2.0 * rigid_half[0] / rb_nx
-    lb = -rigid_half + 0.5 * rb_dx  # 左下角 + 半格
-
-    # --- 这里定义刚体中心：x,z 随便放，y = rigid_half.y 就是贴在地面 ---
-    center = ti.Vector([0.7, rigid_half[1], 0.5])  # (0.7, 0.08, 0.5)
+    lb = -rigid_half + 0.5 * rb_dx
+    center = ti.Vector([0.7, rigid_half[1], 0.5])
 
     for k in range(n_rigid):
         ix = k % rb_nx
@@ -172,7 +168,6 @@ def init_fluid_and_rigid():
         rb_local[k] = local
 
         pid = n_fluid + k
-        # 初始刚体中心 = center
         x[pid] = center + local
         v[pid] = ti.Vector.zero(ti.f32, dim)
         a[pid] = ti.Vector.zero(ti.f32, dim)
@@ -183,15 +178,12 @@ def init_fluid_and_rigid():
         ) / n_rigid
 
     rb_pos[None] = center
-    rb_vel[None] = ti.Vector.zero(ti.f32, dim)  # 初速度 = 0
+    rb_vel[None] = ti.Vector.zero(ti.f32, dim)
     rb_force[None] = ti.Vector.zero(ti.f32, dim)
 
 
 @ti.kernel
 def init_cube_indices():
-    # 立方体 8 顶点索引：0~7
-    # 12 个三角形，展平成 36 个 index
-    # front
     cube_indices[0] = 0
     cube_indices[1] = 1
     cube_indices[2] = 2
@@ -250,7 +242,7 @@ def update_cube_vertices():
 
 
 # ==========================
-# DFSPH 子程序
+# DFSPH
 # ==========================
 @ti.kernel
 def compute_density():
@@ -285,7 +277,7 @@ def compute_alpha():
                         sum_grad_pk += grad_pj.norm_sqr()
                         grad_pi += grad_pj
                     else:
-                        # rigid neighbor: 只累加到 grad_pi，不算平方和
+                        # rigid neighbor
                         grad_pi += grad_pj
             sum_grad_pk += grad_pi.norm_sqr()
             factor = 0.0
@@ -323,7 +315,6 @@ def compute_kappa():
 
 @ti.kernel
 def correct_density_error_step():
-    # 对应 DFSPHSolver.correct_density_error_task
     for i in range(n_particles):
         if is_fluid[i] == 1:
             ki = kappa[i]
@@ -343,11 +334,10 @@ def correct_density_error_step():
                             rhoj = density[j]
                             v[i] -= grad_pj * (ki / rhoi + kj / rhoj) * rho0
                     else:
-                        # rigid neighbor：k_j = k_i
+                        # rigid neighbor
                         ksum = ki
                         if abs(ksum) > eps * dt:
                             v[i] -= grad_pj * (ki / rhoi) * rho0
-                            # 反作用力加到刚体上（忽略扭矩，只算平移）
                             force_j = (
                                 grad_pj
                                 * (ki / rhoi)
@@ -403,9 +393,7 @@ def compute_density_derivative():
                 if R.norm() < dh:
                     d_adv += rest_volume[j] * (vi - vj).dot(kernel_grad(R))
                     n_nbr += 1
-            # 只修正正的 divergence
             d_adv = max(d_adv, 0.0)
-            # 简单的粒子缺失判据
             if dim == 3:
                 if n_nbr < 20:
                     d_adv = 0.0
@@ -414,7 +402,6 @@ def compute_density_derivative():
 
 @ti.kernel
 def compute_kappa_v():
-    # 注意这里不除 dt
     max_kappa = 0.0
     for i in range(n_particles):
         if is_fluid[i] == 1:
@@ -491,16 +478,14 @@ def correct_divergence_error():
 
 
 # ==========================
-# 重力 + 刚体更新 + 边界
+# Non-pressure
 # ==========================
 @ti.kernel
 def compute_non_pressure_acceleration():
     for i in range(n_particles):
-        # 默认加速度先置零
         ai = ti.Vector.zero(ti.f32, dim)
 
         if is_fluid[i] == 1:
-            # 重力
             ai = g
             xi = x[i]
             vi = v[i]
@@ -514,36 +499,19 @@ def compute_non_pressure_acceleration():
                 r = R.norm()
 
                 if r < dh:
-                    # ---------- 你的短程排斥力 ----------
                     dia2 = dx * dx
                     R2 = ti.math.dot(R, R)
                     if R2 > dia2:
-                        ai -= (
-                            0.01
-                            / rest_volume[i]
-                            * rest_volume[j]
-                            * R
-                            * kernel_W(r)
-                        )
+                        ai -= 0.01 / rest_volume[i] * rest_volume[j] * R * kernel_W(r)
                     else:
-                        ai -= (
-                            0.01
-                            / rest_volume[i]
-                            * rest_volume[j]
-                            * R
-                            * kernel_W(dx)  # 这里修掉原来的 bug
-                        )
+                        ai -= 0.01 / rest_volume[i] * rest_volume[j] * R * kernel_W(dx)
 
-                    # ---------- 粘性项（只对流体邻居生效） ----------
                     if is_fluid[j] == 1:
                         vj = v[j]
                         vij = vj - vi
-                        # 简单的“拉普拉斯型”粘性：和速度差成正比
                         ai += 5 * rest_volume[j] * vij * kernel_W(r)
 
-        # 写回
         a[i] = ai
-
 
 
 @ti.kernel
@@ -566,11 +534,9 @@ def rigid_step():
     pos = rb_pos[None]
     force = rb_force[None]
 
-    # 刚体受 fluid 反作用力 + 重力
     vel += dt * (force / rigid_mass + g)
     pos += dt * vel
 
-    # 简单边界碰撞（对刚体中心）
     for k in ti.static(range(dim)):
         if pos[k] < domain_min[k] + rigid_half[k]:
             pos[k] = domain_min[k] + rigid_half[k]
@@ -590,7 +556,7 @@ def renew_rigid_particles():
     for k in range(n_rigid):
         pid = n_fluid + k
         x[pid] = c + rb_local[k]
-        v[pid] = rb_vel[None]  # 简化：刚体粒子速度 = 刚体平移速度
+        v[pid] = rb_vel[None]
 
 
 @ti.kernel
@@ -615,12 +581,12 @@ def compute_rigid_particle_volume():
 
 
 # ==========================
-# 单步模拟（模仿 DFSPHSolver._step）
+# Simulation step
 # ==========================
 def step():
     compute_non_pressure_acceleration()
     update_fluid_velocity()
-    correct_density_error()  # 常密度 DFSPH
+    correct_density_error()
 
     update_fluid_position()
 
@@ -630,15 +596,16 @@ def step():
     enforce_boundary()
     compute_density()
     compute_alpha()
-    correct_divergence_error()  # 无散度 DFSPH
+    correct_divergence_error()
     compute_rigid_particle_volume()
 
 
 # ==========================
-# 主程序：headless 渲染到 PNG
+# Main
 # ==========================
 def main():
     os.makedirs("frames", exist_ok=True)
+    os.makedirs("frames/test", exist_ok=True)
 
     init_fluid_and_rigid()
     init_cube_indices()
@@ -656,7 +623,6 @@ def main():
         for _ in range(substeps):
             step()
 
-        # 设置相机
         camera = ti.ui.Camera()
         camera.position(1.6, 1.0, 1.6)
         camera.lookat(0.5, 0.4, 0.5)
@@ -665,18 +631,19 @@ def main():
         scene.ambient_light((0.4, 0.4, 0.4))
         scene.point_light((2.0, 3.0, 2.0), (1.0, 1.0, 1.0))
 
-        # 画 fluid 粒子
         scene.particles(x, radius=0.01, index_count=n_fluid, color=(0.2, 0.6, 1.0))
 
-        # 刚体 cube mesh
         update_cube_vertices()
         scene.mesh(cube_vertices, indices=cube_indices, color=(1.0, 0.5, 0.2))
 
         canvas.scene(scene)
 
-        fname = f"frames/frame_{frame:04d}.png"
+        fname = f"frames/test/frame_{frame:04d}.png"
         window.save_image(fname)
         print("saved", fname)
+    os.system(
+        "ffmpeg -framerate 30 -i frames/test/frame_%04d.png -c:v libx264 -pix_fmt yuv420p sph_rigid_3d.mp4 -y"
+    )
 
 
 if __name__ == "__main__":
