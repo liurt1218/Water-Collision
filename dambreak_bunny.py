@@ -36,7 +36,7 @@ dim = 3
 x, y, z = 0.96, 0.96, 0.24
 
 # Particle diameter
-particle_diameter = 0.015
+particle_diameter = 0.012
 
 # Total number of particles
 nx, ny, nz = (
@@ -63,8 +63,7 @@ mesh_vertices = ti.Vector.field(3, ti.f32, shape=n_mesh_verts)
 mesh_indices = ti.field(ti.i32, shape=3 * n_mesh_faces)
 
 # Rigidbody particles
-rb_nx, rb_ny, rb_nz = 4, 4, 4
-n_rigid_per_body = rb_nx * rb_ny * rb_nz
+n_rigid_per_body = n_mesh_verts
 n_rigid_bodies = 2
 n_rigid_total = n_rigid_per_body * n_rigid_bodies
 
@@ -127,11 +126,6 @@ rb_local = ti.Vector.field(dim, ti.f32, shape=n_rigid_per_body)
 
 # Map particles to bodies
 rigid_id = ti.field(ti.i32, shape=n_particles)
-
-# Rendering the cube
-cube_local = ti.Vector.field(3, ti.f32, shape=8)
-cube_vertices = ti.Vector.field(3, ti.f32, shape=8)
-cube_indices = ti.field(ti.i32, shape=36)  # Triangular mesh
 
 
 # ==========================
@@ -199,13 +193,9 @@ def kernel_grad(R):
 # Initialize
 # ==========================
 @ti.kernel
-def init_mesh():
-    for i in range(n_mesh_verts):
-        mesh_local[i] = ti.Vector(mesh_verts_np[i])  # local space 顶点
-    for f in range(n_mesh_faces):
-        mesh_indices[3 * f + 0] = mesh_faces_np[f, 0]
-        mesh_indices[3 * f + 1] = mesh_faces_np[f, 1]
-        mesh_indices[3 * f + 2] = mesh_faces_np[f, 2]
+def init_rb_local_from_mesh():
+    for k in range(n_rigid_per_body):
+        rb_local[k] = mesh_local[k]
 
 
 @ti.kernel
@@ -223,15 +213,6 @@ def init_fluid_and_rigid():
         is_dynamic[i] = 1
         rest_volume[i] = particle_diameter**3
         rigid_id[i] = -1
-
-    # Rigid cube
-    rb_dx = 2.0 * rigid_half[0] / rb_nx
-    lb = -rigid_half + 0.5 * rb_dx
-    for k in range(n_rigid_per_body):
-        ix = k % rb_nx
-        iy = (k // rb_nx) % rb_ny
-        iz = k // (rb_nx * rb_ny)
-        rb_local[k] = lb + ti.Vector([ix, iy, iz]) * rb_dx
 
     # Rigidbodies
     for b in range(n_rigid_bodies):
@@ -273,62 +254,6 @@ def init_rigid_orientation_and_cube():
         rb_rot[body] = ti.Matrix.identity(ti.f32, 3)
         rb_omega[body] = ti.Vector.zero(ti.f32, 3)
         rb_torque[body] = ti.Vector.zero(ti.f32, 3)
-
-    hx, hy, hz = rigid_half[0], rigid_half[1], rigid_half[2]
-    cube_local[0] = ti.Vector([-hx, -hy, -hz])
-    cube_local[1] = ti.Vector([+hx, -hy, -hz])
-    cube_local[2] = ti.Vector([+hx, +hy, -hz])
-    cube_local[3] = ti.Vector([-hx, +hy, -hz])
-    cube_local[4] = ti.Vector([-hx, -hy, +hz])
-    cube_local[5] = ti.Vector([+hx, -hy, +hz])
-    cube_local[6] = ti.Vector([+hx, +hy, +hz])
-    cube_local[7] = ti.Vector([-hx, +hy, +hz])
-
-
-@ti.kernel
-def init_cube_indices():
-    # front
-    cube_indices[0] = 0
-    cube_indices[1] = 1
-    cube_indices[2] = 2
-    cube_indices[3] = 0
-    cube_indices[4] = 2
-    cube_indices[5] = 3
-    # back
-    cube_indices[6] = 4
-    cube_indices[7] = 5
-    cube_indices[8] = 6
-    cube_indices[9] = 4
-    cube_indices[10] = 6
-    cube_indices[11] = 7
-    # bottom
-    cube_indices[12] = 0
-    cube_indices[13] = 1
-    cube_indices[14] = 5
-    cube_indices[15] = 0
-    cube_indices[16] = 5
-    cube_indices[17] = 4
-    # top
-    cube_indices[18] = 3
-    cube_indices[19] = 2
-    cube_indices[20] = 6
-    cube_indices[21] = 3
-    cube_indices[22] = 6
-    cube_indices[23] = 7
-    # left
-    cube_indices[24] = 0
-    cube_indices[25] = 3
-    cube_indices[26] = 7
-    cube_indices[27] = 0
-    cube_indices[28] = 7
-    cube_indices[29] = 4
-    # right
-    cube_indices[30] = 1
-    cube_indices[31] = 2
-    cube_indices[32] = 6
-    cube_indices[33] = 1
-    cube_indices[34] = 6
-    cube_indices[35] = 5
 
 
 @ti.kernel
@@ -662,38 +587,6 @@ def orthonormalize(R):
     return ti.Matrix.cols([c0, c1, c2])
 
 
-@ti.func
-def support_distance_on_box(R, n_world):
-    n_local = R.transpose() @ n_world
-    half = rigid_half
-    return (
-        ti.abs(n_local[0]) * half[0]
-        + ti.abs(n_local[1]) * half[1]
-        + ti.abs(n_local[2]) * half[2]
-    )
-
-
-@ti.func
-def contact_offset_on_box(R, dir_world):
-    dir_local = R.transpose() @ dir_world
-    half = rigid_half
-
-    t_min = 1e8
-    for k in ti.static(range(3)):
-        ak = dir_local[k]
-        if ti.abs(ak) > 1e-6:
-            tk = half[k] / ti.abs(ak)
-            if tk < t_min:
-                t_min = tk
-
-    if t_min > 1e7:
-        t_min = 0.0
-
-    contact_local = dir_local * t_min
-    contact_world = R @ contact_local
-    return contact_world
-
-
 @ti.kernel
 def handle_rigid_collisions():
     inv_m = 1.0 / rigid_mass
@@ -702,40 +595,37 @@ def handle_rigid_collisions():
 
     for b1 in range(n_rigid_bodies):
         for b2 in range(b1 + 1, n_rigid_bodies):
-            c1 = rb_pos[b1]
-            c2 = rb_pos[b2]
-            d = c2 - c1
-            dist = d.norm()
-            if dist <= 1e-6:
-                continue
-            n = d / dist
+            min_dist = 1e8
+            p1 = ti.Vector.zero(ti.f32, dim)
+            p2 = ti.Vector.zero(ti.f32, dim)
 
-            R1 = rb_rot[b1]
-            R2 = rb_rot[b2]
+            for k1 in range(n_rigid_per_body):
+                pid1 = n_fluid + b1 * n_rigid_per_body + k1
+                x1 = x[pid1]
+                for k2 in range(n_rigid_per_body):
+                    pid2 = n_fluid + b2 * n_rigid_per_body + k2
+                    x2 = x[pid2]
+                    d = x2 - x1
+                    dist = d.norm()
+                    if dist < min_dist:
+                        min_dist = dist
+                        p1 = x1
+                        p2 = x2
 
-            s1 = support_distance_on_box(R1, n)
-            s2 = support_distance_on_box(R2, -n)
-            min_dist = s1 + s2
-
-            if dist < min_dist:
-                penetration = min_dist - dist
-                corr = 0.5 * penetration * n
-                rb_pos[b1] -= corr
-                rb_pos[b2] += corr
+            contact_thresh = particle_diameter * 0.8
+            if min_dist < contact_thresh and min_dist > 1e-6:
+                n = (p2 - p1) / min_dist
 
                 c1 = rb_pos[b1]
                 c2 = rb_pos[b2]
 
-                offset1 = contact_offset_on_box(R1, n)
-                offset2 = contact_offset_on_box(R2, -n)
+                penetration = contact_thresh - min_dist
+                corr = 0.5 * penetration * n
+                c1 -= corr
+                c2 += corr
 
-                p1 = c1 + offset1
-                p2 = c2 + offset2
-
-                dc = p2 - p1
-                dc_len = dc.norm()
-                if dc_len > 1e-6:
-                    n = dc / dc_len
+                rb_pos[b1] = c1
+                rb_pos[b2] = c2
 
                 r1 = p1 - c1
                 r2 = p2 - c2
@@ -933,9 +823,9 @@ def main():
     mesh_local.from_numpy(mesh_verts_np_scaled.astype(np.float32))
     mesh_indices.from_numpy(mesh_indices_np.astype(np.int32))
 
+    init_rb_local_from_mesh()
     init_fluid_and_rigid()
     init_rigid_orientation_and_cube()
-    # init_cube_indices()
     compute_density()
     compute_alpha()
 
