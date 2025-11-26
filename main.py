@@ -89,12 +89,14 @@ def main(fluid_scene_cfg: FluidSceneConfig, rigid_scene_cfg: RigidSceneConfig):
     # ------------------------------------------------------------------
     os.makedirs("frames", exist_ok=True)
     os.makedirs("renderings", exist_ok=True)
-    os.makedirs("frames/2_fluid_bunny_teapot_sample_2", exist_ok=True)
+    os.makedirs("frames/bunny_teapot", exist_ok=True)
 
     # ------------------------------------------------------------------
     # Taichi GUI setup
     # ------------------------------------------------------------------
-    window = ti.ui.Window("DFSPH + Rigid Demo (Multi-Fluid)", (1280, 720), show_window=False)
+    window = ti.ui.Window(
+        "DFSPH + Rigid Demo (Multi-Fluid)", (1280, 720), show_window=False
+    )
     canvas = window.get_canvas()
     scene = window.get_scene()
 
@@ -174,7 +176,7 @@ def main(fluid_scene_cfg: FluidSceneConfig, rigid_scene_cfg: RigidSceneConfig):
 
         canvas.scene(scene)
 
-        fname = f"frames/2_fluid_bunny_teapot_sample_2/frame_{frame:04d}.png"
+        fname = f"frames/bunny_teapot/frame_{frame:04d}.png"
         window.save_image(fname)
         print("saved", fname)
 
@@ -182,8 +184,14 @@ def main(fluid_scene_cfg: FluidSceneConfig, rigid_scene_cfg: RigidSceneConfig):
     # Encode frames into an MP4 video using ffmpeg
     # ------------------------------------------------------------------
     os.system(
-        "ffmpeg -framerate 30 -i frames/2_fluid_bunny_teapot_sample_2/frame_%04d.png "
-        "-c:v libx264 -pix_fmt yuv420p renderings/2_fluid_bunny_teapot_sample_2.mp4 -y"
+        "ffmpeg -framerate 30 -i frames/bunny_teapot/frame_%04d.png "
+        "-c:v libx264 -pix_fmt yuv420p renderings/bunny_teapot.mp4 -y"
+    )
+    os.system(
+        "ffmpeg -framerate 8 "
+        "-i frames/bunny_teapot/frame_%04d.png "
+        '-vf "scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=sierra2_4a" '
+        "renderings/bunny_teapot.gif -y"
     )
 
 
@@ -197,23 +205,23 @@ if __name__ == "__main__":
             FluidBlockConfig(
                 enabled=True,
                 base=(0.02, 0.02, 0.02),
-                size=(0.96, 0.48, 0.24),
-                particle_diameter=0.01,
+                size=(0.96, 0.96, 0.24),
+                particle_diameter=0.015,
                 rho0=1000.0,
                 surface_tension=0.04,
-                viscosity=50.0,
+                viscosity=5.0,
             ),
             # Block 1 (example: smaller block with different parameters)
             # You can comment this out if you only want one block.
-            FluidBlockConfig(
-                enabled=True,
-                base=(0.02, 0.52, 0.02),
-                size=(0.96, 0.48, 0.24),
-                particle_diameter=0.01,
-                rho0=800.0,
-                surface_tension=0.02,
-                viscosity=2.0,
-            ),
+            # FluidBlockConfig(
+            #    enabled=True,
+            #    base=(0.02, 0.52, 0.02),
+            #    size=(0.96, 0.48, 0.24),
+            #    particle_diameter=0.02,
+            #    rho0=800.0,
+            #    surface_tension=0.02,
+            #    viscosity=2.0,
+            # ),
         ]
     )
 
