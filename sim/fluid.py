@@ -596,11 +596,11 @@ def enforce_boundary():
             p = S.x[i]
             vi = S.v[i]
             for k in ti.static(range(C.dim)):
-                if p[k] < C.domain_min[k]:
-                    p[k] = C.domain_min[k]
+                if p[k] < C.domain_min_cropped[k]:
+                    p[k] = C.domain_min_cropped[k]
                     vi[k] *= -0.3
-                if p[k] > C.domain_max[k]:
-                    p[k] = C.domain_max[k]
+                if p[k] > C.domain_max_cropped[k]:
+                    p[k] = C.domain_max_cropped[k]
                     vi[k] *= -0.3
             S.x[i] = p
             S.v[i] = vi

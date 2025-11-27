@@ -424,6 +424,6 @@ os.system(
 os.system(
     "ffmpeg -framerate 8 "
     f"-i blender_frames/{args.project}/frame_%04d.png "
-    '-vf "scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=sierra2_4a" '
-    f"blender_renderings/{args.project}.gif -y"
+    '-vf "scale=640:-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=full[p];[s1][p]paletteuse=dither=floyd_steinberg" '
+    f"blender_renderings/{args.project}.gif -y "
 )

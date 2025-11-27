@@ -6,6 +6,7 @@ from .config import RigidSceneConfig
 from .io_utils import load_obj
 from . import state as S
 from . import config as C
+import tqdm
 
 
 # ================================================================
@@ -54,17 +55,6 @@ def rot_from_euler(rx, ry, rz):
 # ================================================================
 # Initialization
 # ================================================================
-# sim/rigid.py
-import numpy as np
-import taichi as ti
-
-from .config import RigidSceneConfig
-from .io_utils import load_obj
-from . import state as S
-from . import config as C
-import tqdm
-
-
 def init_rigid_from_scene(rigid_cfg: RigidSceneConfig):
     """
     Python-side initialization of rigid bodies:
@@ -122,7 +112,9 @@ def init_rigid_from_scene(rigid_cfg: RigidSceneConfig):
         if mesh_indices_temp is None:
             mesh_indices_temp = flat_indices
         else:
-            mesh_indices_temp = np.concatenate([mesh_indices_temp, flat_indices], axis=0)
+            mesh_indices_temp = np.concatenate(
+                [mesh_indices_temp, flat_indices], axis=0
+            )
 
         # Per-body parameters
         S.rb_pos[b] = ti.Vector(body.center)
@@ -244,11 +236,11 @@ def rigid_step():
         # Boundary collisions for rigid body center
         for k in ti.static(range(C.dim)):
             if k != 1:
-                if pos[k] < C.domain_min[k] + half[k]:
-                    pos[k] = C.domain_min[k] + half[k]
+                if pos[k] < C.domain_min_cropped[k] + half[k]:
+                    pos[k] = C.domain_min_cropped[k] + half[k]
                     vel[k] *= -restitution
-                if pos[k] > C.domain_max[k] - half[k]:
-                    pos[k] = C.domain_max[k] - half[k]
+                if pos[k] > C.domain_max_cropped[k] - half[k]:
+                    pos[k] = C.domain_max_cropped[k] - half[k]
                     vel[k] *= -restitution
 
         S.rb_vel[b] = vel
@@ -436,7 +428,7 @@ def handle_rigid_collisions():
 @ti.kernel
 def handle_rigid_ground_collision():
     """Rigid-ground collision with friction and angular damping."""
-    ground_y = C.domain_min[1]
+    ground_y = C.domain_min_cropped[1]
     n = ti.Vector([0.0, 1.0, 0.0])
 
     for b in range(S.n_rigid_bodies):

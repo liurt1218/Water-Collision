@@ -12,6 +12,8 @@ dt = 1e-3
 
 domain_min: Vec3 = (0.0, 0.0, 0.0)
 domain_max: Vec3 = (1.0, 1.0, 1.0)
+domain_min_cropped: Vec3 = (0.02, 0.02, 0.02)
+domain_max_cropped: Vec3 = (0.98, 0.98, 0.98)
 g: Vec3 = (0.0, -9.81, 0.0)
 
 # Default values used as convenient fallbacks for fluid blocks
@@ -52,14 +54,14 @@ class FluidBlockConfig:
     enabled: bool = True
 
     # Block placement in world space
-    base: Vec3 = (0.02, 0.02, 0.02)          # minimum corner
+    base: Vec3 = (0.02, 0.02, 0.02)  # minimum corner
     size: Vec3 = (_default_x_len, _default_y_len, _default_z_len)
 
     # Particle spacing
     particle_diameter: float = _default_particle_diameter
 
     # Physical properties
-    rho0: float = _default_rho0              # rest density
+    rho0: float = _default_rho0  # rest density
     surface_tension: float = _default_surface_tension
     viscosity: float = _default_viscosity
 
@@ -70,6 +72,7 @@ class FluidBlockConfig:
 @dataclass
 class FluidSceneConfig:
     """Collection of multiple fluid blocks in the scene."""
+
     blocks: Sequence[FluidBlockConfig] = field(default_factory=list)
 
 
@@ -104,6 +107,7 @@ class RigidSceneConfig:
 
     Each rigid body can have its own OBJ mesh and physical parameters.
     """
+
     bodies: Sequence[RigidBodyConfig] = field(default_factory=list)
 
 

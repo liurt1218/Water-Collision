@@ -79,6 +79,7 @@ def main(fluid_scene_cfg: FluidSceneConfig, rigid_scene_cfg: RigidSceneConfig):
     # ------------------------------------------------------------------
     S.allocate_fields(
         n_fluid_in=n_fluid,
+        n_fluid_blocks_in=len(fluid_scene_cfg.blocks),
         mesh_vert_counts=mesh_vert_counts,
         mesh_index_counts=mesh_index_counts,
     )
@@ -239,7 +240,7 @@ if __name__ == "__main__":
             FluidBlockConfig(
                 enabled=True,
                 base=(0.02, 0.02, 0.02),
-                size=(0.96, 0.96, 0.24),
+                size=(0.9, 0.3, 0.9),
                 particle_diameter=0.015,
                 rho0=1000.0,
                 surface_tension=0.04,
@@ -266,7 +267,7 @@ if __name__ == "__main__":
         bodies=[
             RigidBodyConfig(
                 mesh_path="obj/teapot.obj",
-                center=(0.5, 0.2 + 0.4, 0.5),
+                center=(0.5, 0.6, 0.3),
                 half_extents=(0.18, 0.18, 0.18),
                 density=800.0,
                 restitution=0.6,
@@ -274,8 +275,8 @@ if __name__ == "__main__":
             ),
             RigidBodyConfig(
                 mesh_path="obj/bunny.obj",
-                center=(0.5, 0.2, 0.5),
-                half_extents=(0.2, 0.2, 0.2),
+                center=(0.5, 0.6, 0.8),
+                half_extents=(0.1, 0.1, 0.1),
                 density=300.0,
                 restitution=0.3,
                 friction=0.3,

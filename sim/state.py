@@ -4,6 +4,7 @@ from . import config as C
 
 # Global counts
 n_fluid: int = 0
+n_fluid_blocks: int = 0
 n_rigid_bodies: int = 0
 n_rigid_total: int = 0
 n_particles: int = 0
@@ -78,6 +79,7 @@ mesh_index_count = None
 
 def allocate_fields(
     n_fluid_in: int,
+    n_fluid_blocks_in: int,
     mesh_vert_counts: list[int],
     mesh_index_counts: list[int],
 ):
@@ -89,7 +91,7 @@ def allocate_fields(
 
     We assume one rigid particle per mesh vertex.
     """
-    global n_fluid, n_rigid_bodies, n_rigid_total, n_particles
+    global n_fluid, n_fluid_blocks, n_rigid_bodies, n_rigid_total, n_particles
     global x, v, a, is_fluid, is_dynamic, fluid_id, rest_volume, density
     global alpha, density_star, density_deriv, kappa, kappa_v
     global fluid_rho0, fluid_surface_tension, fluid_viscosity
@@ -107,6 +109,7 @@ def allocate_fields(
 
     # Counts
     n_fluid = n_fluid_in
+    n_fluid_blocks = n_fluid_blocks_in
     n_rigid_bodies = len(mesh_vert_counts)
     n_rigid_total = int(sum(mesh_vert_counts))
     n_particles = n_fluid + n_rigid_total
