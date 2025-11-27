@@ -1,6 +1,8 @@
 # main.py
 import os
 import taichi as ti
+import numpy as np
+import argparse
 
 from sim import config as C
 from sim.config import (
@@ -18,6 +20,7 @@ from sim.fluid import (
 )
 from sim.rigid import init_rigid, update_mesh_vertices
 from sim.step import step
+from sim.surface import export_fluid_obj, export_rigid_obj
 
 
 def compute_fluid_block_ranges(fluid_scene_cfg: FluidSceneConfig):
@@ -47,6 +50,14 @@ def compute_fluid_block_ranges(fluid_scene_cfg: FluidSceneConfig):
 def main(fluid_scene_cfg: FluidSceneConfig, rigid_scene_cfg: RigidSceneConfig):
     """Entry point of the DFSPH + multi-rigid-body + multi-fluid-block simulation."""
     ti.init(arch=ti.gpu, device_memory_fraction=0.8)
+    parser = argparse.ArgumentParser(description="DFSPH + Rigid simulation runner")
+    parser.add_argument(
+        "--project",
+        type=str,
+        required=True,
+        help="Project name used as output directory prefix",
+    )
+    args = parser.parse_args()
 
     # ------------------------------------------------------------------
     # Determine fluid particle count from all fluid blocks
@@ -87,9 +98,10 @@ def main(fluid_scene_cfg: FluidSceneConfig, rigid_scene_cfg: RigidSceneConfig):
     # ------------------------------------------------------------------
     # Output directories
     # ------------------------------------------------------------------
-    os.makedirs("frames", exist_ok=True)
-    os.makedirs("renderings", exist_ok=True)
-    os.makedirs("frames/bunny_teapot", exist_ok=True)
+    os.makedirs(f"frames/{args.project}", exist_ok=True)
+    os.makedirs(f"meshes/{args.project}", exist_ok=True)
+    os.makedirs(f"particles/{args.project}", exist_ok=True)
+    os.makedirs(f"renderings", exist_ok=True)
 
     # ------------------------------------------------------------------
     # Taichi GUI setup
@@ -174,9 +186,30 @@ def main(fluid_scene_cfg: FluidSceneConfig, rigid_scene_cfg: RigidSceneConfig):
                 color=(1.0, 0.5, 0.2),
             )
 
+        if n_fluid > 0:
+            obj_path = f"meshes/{args.project}/scene_fluid_0_{frame:04d}.obj"
+            export_fluid_obj(obj_path, iso_ratio=0.5)
+
+            xyz_path = f"particles/{args.project}/frame_{frame:04d}.xyz"
+
+            x_np = S.x.to_numpy()
+            is_fluid_np = S.is_fluid.to_numpy().astype(bool)
+            d_np = S.fluid_particle_diameter.to_numpy()
+
+            fluid_pos = x_np[is_fluid_np]
+            fluid_r = d_np[is_fluid_np] * 0.5
+
+            data = np.hstack([fluid_pos, fluid_r[:, None]])
+
+            np.savetxt(xyz_path, data, fmt="%.6f")
+
+        for b in range(S.n_rigid_bodies):
+            rigid_obj_path = f"meshes/{args.project}/scene_rigid_{b}_{frame:04d}.obj"
+            export_rigid_obj(rigid_obj_path, body_id=b)
+
         canvas.scene(scene)
 
-        fname = f"frames/bunny_teapot/frame_{frame:04d}.png"
+        fname = f"frames/{args.project}/frame_{frame:04d}.png"
         window.save_image(fname)
         print("saved", fname)
 
@@ -184,15 +217,16 @@ def main(fluid_scene_cfg: FluidSceneConfig, rigid_scene_cfg: RigidSceneConfig):
     # Encode frames into an MP4 video using ffmpeg
     # ------------------------------------------------------------------
     os.system(
-        "ffmpeg -framerate 30 -i frames/bunny_teapot/frame_%04d.png "
-        "-c:v libx264 -pix_fmt yuv420p renderings/bunny_teapot.mp4 -y"
+        f"ffmpeg -framerate 30 -i frames/{args.project}/frame_%04d.png "
+        f"-c:v libx264 -pix_fmt yuv420p renderings/{args.project}.mp4 -y"
     )
     os.system(
         "ffmpeg -framerate 8 "
-        "-i frames/bunny_teapot/frame_%04d.png "
+        f"-i frames/{args.project}/frame_%04d.png "
         '-vf "scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=sierra2_4a" '
-        "renderings/bunny_teapot.gif -y"
+        f"renderings/{args.project}.gif -y"
     )
+    os.system(f"blender -b -P render.py -- --project {args.project}")
 
 
 if __name__ == "__main__":

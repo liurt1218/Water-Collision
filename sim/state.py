@@ -15,6 +15,7 @@ a = None  # accelerations
 
 is_fluid = None  # 1 if this particle is fluid, 0 otherwise
 is_dynamic = None  # 1 if this particle is dynamic, 0 otherwise
+fluid_id = None
 
 rest_volume = None
 density = None
@@ -89,7 +90,7 @@ def allocate_fields(
     We assume one rigid particle per mesh vertex.
     """
     global n_fluid, n_rigid_bodies, n_rigid_total, n_particles
-    global x, v, a, is_fluid, is_dynamic, rest_volume, density
+    global x, v, a, is_fluid, is_dynamic, fluid_id, rest_volume, density
     global alpha, density_star, density_deriv, kappa, kappa_v
     global fluid_rho0, fluid_surface_tension, fluid_viscosity
     global fluid_support_radius, fluid_particle_diameter
@@ -121,6 +122,7 @@ def allocate_fields(
 
     is_fluid = ti.field(ti.i32, shape=n_particles)
     is_dynamic = ti.field(ti.i32, shape=n_particles)
+    fluid_id = ti.field(ti.i32, shape=n_particles)
     rest_volume = ti.field(ti.f32, shape=n_particles)
     density = ti.field(ti.f32, shape=n_particles)
 

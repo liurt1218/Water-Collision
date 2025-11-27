@@ -85,6 +85,7 @@ def kernel_grad(R: ti.types.vector(C.dim, ti.f32), h_: ti.f32):
 # ================================================================
 @ti.kernel
 def _init_fluid_block_kernel(
+    id: ti.i32,
     p_offset: ti.i32,
     nx: ti.i32,
     ny: ti.i32,
@@ -126,9 +127,7 @@ def _init_fluid_block_kernel(
         iz = local // (nx * ny)
 
         # Position on a regular grid inside the block
-        S.x[i] = base + ti.Vector(
-            [ix + 0.5, iy + 0.5, iz + 0.5]
-        ) * particle_diameter
+        S.x[i] = base + ti.Vector([ix + 0.5, iy + 0.5, iz + 0.5]) * particle_diameter
 
         # Initial kinematics
         S.v[i] = ti.Vector.zero(ti.f32, C.dim)
@@ -137,9 +136,10 @@ def _init_fluid_block_kernel(
         # Mark as fluid & dynamic
         S.is_fluid[i] = 1
         S.is_dynamic[i] = 1
+        S.fluid_id[i] = id
 
         # Rest volume is approximated from particle spacing
-        S.rest_volume[i] = particle_diameter ** 3
+        S.rest_volume[i] = particle_diameter**3
 
         # Per-particle fluid properties (copied from the block config)
         S.fluid_rho0[i] = rho0
@@ -157,7 +157,7 @@ def init_fluid_blocks(fluid_scene: C.FluidSceneConfig):
     n_fluid = compute_total_fluid_particles(fluid_scene).
     """
     offset = 0
-    for cfg in fluid_scene.blocks:
+    for id, cfg in enumerate(fluid_scene.blocks):
         if not cfg.enabled:
             continue
 
@@ -171,6 +171,7 @@ def init_fluid_blocks(fluid_scene: C.FluidSceneConfig):
         support_radius = h * cfg.support_radius_scale
 
         _init_fluid_block_kernel(
+            id,
             offset,
             nx,
             ny,
@@ -186,7 +187,9 @@ def init_fluid_blocks(fluid_scene: C.FluidSceneConfig):
         )
         offset += n_block
 
-    assert offset == S.n_fluid, f"init_fluid_blocks: offset={offset}, n_fluid={S.n_fluid}"
+    assert (
+        offset == S.n_fluid
+    ), f"init_fluid_blocks: offset={offset}, n_fluid={S.n_fluid}"
 
 
 # ================================================================
@@ -368,10 +371,7 @@ def correct_density_error():
             break
         num_iter += 1
 
-    print(
-        f"[DFSPH density] iters={num_iter}, "
-        f"avg_err={avg_err * rho0_avg:.4f}"
-    )
+    print(f"[DFSPH density] iters={num_iter}, " f"avg_err={avg_err * rho0_avg:.4f}")
 
 
 # ================================================================

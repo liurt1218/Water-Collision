@@ -2,8 +2,8 @@
 
 $\quad$ TODOs:
 
-- Add deformable objects.
 - Surface reconstruction.
+- Add deformable objects.
 - Add collision logic for walls (not only bottom).
 - Read configuration files.
 

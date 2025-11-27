@@ -193,6 +193,7 @@ def _init_rigid_kernel():
             S.a[pid] = ti.Vector.zero(ti.f32, C.dim)
             S.is_fluid[pid] = 0
             S.is_dynamic[pid] = 1
+            S.fluid_id[pid] = -1
             S.rest_volume[pid] = rest_v
             S.rigid_id[pid] = b
 
