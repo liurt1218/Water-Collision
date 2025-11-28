@@ -201,6 +201,52 @@ if w_spec is not None:
 # Surface connection
 w_links.new(w_bsdf.outputs["BSDF"], w_output.inputs["Surface"])
 
+# Multiple fluid materials with different colors for different fluid blocks
+FLUID_COLORS = [
+    (0.2, 0.6, 1.0, 1.0),  # fluid_0: blue-ish
+    (1.0, 0.3, 0.3, 1.0),  # fluid_1: red-ish
+    (0.3, 0.9, 0.5, 1.0),  # fluid_2: green-ish
+    (0.9, 0.8, 0.3, 1.0),  # fluid_3: yellow-ish
+]
+
+fluid_mats = []
+
+for i, col in enumerate(FLUID_COLORS):
+    if i == 0:
+        # Reuse the main water_mat for fluid_0
+        mat = water_mat
+    else:
+        # Copy node setup from water_mat to keep the same look
+        mat = water_mat.copy()
+        mat.name = f"Water_{i}"
+    nodes = mat.node_tree.nodes
+
+    # Set base color
+    bsdf = None
+    for n in nodes:
+        if n.type == "BSDF_PRINCIPLED":
+            bsdf = n
+            break
+    if bsdf is not None:
+        base = bsdf.inputs.get("Base Color")
+        if base is not None:
+            base.default_value = col
+
+    # Optional: slightly tint volume absorption color as well
+    abs_node_local = None
+    for n in nodes:
+        if n.type == "VOLUME_ABSORPTION":
+            abs_node_local = n
+            break
+    if abs_node_local is not None:
+        abs_col_input = abs_node_local.inputs.get("Color")
+        if abs_col_input is not None:
+            # Use a darker version of the base color
+            r, g, b, a = col
+            abs_col_input.default_value = (r * 0.3, g * 0.3, b * 0.3, a)
+
+    fluid_mats.append(mat)
+
 # Add volume absorption for depth
 abs_node = w_nodes.new(type="ShaderNodeVolumeAbsorption")
 abs_node.location = (w_bsdf.location.x + 200, w_bsdf.location.y - 200)
@@ -340,7 +386,15 @@ for idx, frame_id in enumerate(sorted_frames):
 
             tag_lower = tag.lower()
             if tag_lower.startswith("fluid"):
-                mat = water_mat
+                # Choose fluid material based on fluid index in tag, e.g. "fluid_0", "fluid_1", ...
+                mat = fluid_mats[0]
+                try:
+                    parts = tag_lower.split("_")
+                    if len(parts) > 1:
+                        idx_int = int(parts[1])
+                        mat = fluid_mats[idx_int % len(fluid_mats)]
+                except Exception:
+                    pass
             elif tag_lower.startswith("rigid"):
                 mat = rigid_mats[0]
                 try:

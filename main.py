@@ -20,7 +20,7 @@ from sim.fluid import (
 )
 from sim.rigid import init_rigid, update_mesh_vertices
 from sim.step import step
-from sim.surface import export_fluid_obj, export_rigid_obj
+from sim.surface import export_fluid_objs_per_block, export_rigid_obj
 
 
 def compute_fluid_block_ranges(fluid_scene_cfg: FluidSceneConfig):
@@ -188,21 +188,12 @@ def main(fluid_scene_cfg: FluidSceneConfig, rigid_scene_cfg: RigidSceneConfig):
             )
 
         if n_fluid > 0:
-            obj_path = f"meshes/{args.project}/scene_fluid_0_{frame:04d}.obj"
-            export_fluid_obj(obj_path, iso_ratio=0.5)
-
-            xyz_path = f"particles/{args.project}/frame_{frame:04d}.xyz"
-
-            x_np = S.x.to_numpy()
-            is_fluid_np = S.is_fluid.to_numpy().astype(bool)
-            d_np = S.fluid_particle_diameter.to_numpy()
-
-            fluid_pos = x_np[is_fluid_np]
-            fluid_r = d_np[is_fluid_np] * 0.5
-
-            data = np.hstack([fluid_pos, fluid_r[:, None]])
-
-            np.savetxt(xyz_path, data, fmt="%.6f")
+            export_fluid_objs_per_block(
+                path_prefix=f"meshes/{args.project}",
+                frame=frame,
+                n_fluid_blocks=len(fluid_scene_cfg.blocks),
+                iso_ratio=0.5,
+            )
 
         for b in range(S.n_rigid_bodies):
             rigid_obj_path = f"meshes/{args.project}/scene_rigid_{b}_{frame:04d}.obj"
@@ -240,7 +231,7 @@ if __name__ == "__main__":
             FluidBlockConfig(
                 enabled=True,
                 base=(0.02, 0.02, 0.02),
-                size=(0.9, 0.3, 0.9),
+                size=(0.96, 0.4, 0.24),
                 particle_diameter=0.015,
                 rho0=1000.0,
                 surface_tension=0.04,
@@ -248,15 +239,15 @@ if __name__ == "__main__":
             ),
             # Block 1 (example: smaller block with different parameters)
             # You can comment this out if you only want one block.
-            # FluidBlockConfig(
-            #    enabled=True,
-            #    base=(0.02, 0.52, 0.02),
-            #    size=(0.96, 0.48, 0.24),
-            #    particle_diameter=0.02,
-            #    rho0=800.0,
-            #    surface_tension=0.02,
-            #    viscosity=2.0,
-            # ),
+            FluidBlockConfig(
+                enabled=True,
+                base=(0.02, 0.5, 0.02),
+                size=(0.96, 0.4, 0.24),
+                particle_diameter=0.015,
+                rho0=800.0,
+                surface_tension=0.04,
+                viscosity=2.0,
+            ),
         ]
     )
 
@@ -267,7 +258,7 @@ if __name__ == "__main__":
         bodies=[
             RigidBodyConfig(
                 mesh_path="obj/teapot.obj",
-                center=(0.5, 0.6, 0.3),
+                center=(0.5, 0.2, 0.5),
                 half_extents=(0.18, 0.18, 0.18),
                 density=800.0,
                 restitution=0.6,
@@ -275,7 +266,7 @@ if __name__ == "__main__":
             ),
             RigidBodyConfig(
                 mesh_path="obj/bunny.obj",
-                center=(0.5, 0.6, 0.8),
+                center=(0.5, 0.6, 0.5),
                 half_extents=(0.1, 0.1, 0.1),
                 density=300.0,
                 restitution=0.3,

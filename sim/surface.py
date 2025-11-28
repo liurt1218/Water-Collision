@@ -125,6 +125,135 @@ def reconstruct_fluid_surface(iso_ratio: float = 0.5):
 
 
 # ======================================================================
+# Helpers to split one unified surface into per-fluid-block meshes
+# ======================================================================
+
+
+def _classify_vertices_by_fluid(verts_world: np.ndarray) -> np.ndarray:
+    """
+    Assign a fluid_id to each surface vertex based on the nearest fluid particle.
+
+    This function does not change the geometry. It only labels each vertex
+    with the fluid_id of the closest fluid particle, so that we can split
+    the unified water surface into per-block meshes without introducing
+    geometric gaps between different fluids.
+    """
+    # Pull particle data from Taichi
+    x_np = S.x.to_numpy()
+    is_fluid_np = S.is_fluid.to_numpy().astype(bool)
+    fluid_id_np = S.fluid_id.to_numpy()
+
+    # Only keep real fluid particles (fluid_id >= 0 and is_fluid == 1)
+    mask = is_fluid_np & (fluid_id_np >= 0)
+    x_fluid = x_np[mask]
+    fluid_ids = fluid_id_np[mask]
+
+    n_verts = verts_world.shape[0]
+    vert_fluid_id = np.full(n_verts, -1, dtype=np.int32)
+
+    if x_fluid.shape[0] == 0:
+        # No fluid particles at all
+        return vert_fluid_id
+
+    # Naive nearest neighbor (O(Nv * Np)), simple but robust.
+    # For large scenes you may want to accelerate this with a spatial grid or k-d tree.
+    for i in range(n_verts):
+        v = verts_world[i]
+        diff = x_fluid - v[None, :]
+        dist2 = np.sum(diff * diff, axis=1)
+        j = int(np.argmin(dist2))
+        vert_fluid_id[i] = int(fluid_ids[j])
+
+    return vert_fluid_id
+
+
+def export_fluid_objs_per_block(
+    path_prefix: str,
+    frame: int,
+    n_fluid_blocks: int,
+    iso_ratio: float = 0.5,
+):
+    """
+    Export the unified fluid surface into multiple OBJ files, one per fluid block.
+
+    Geometry is reconstructed once from all fluid particles together to avoid
+    geometric artifacts (gaps) between different fluids. On the CPU, we then
+    assign each triangle to the fluid block whose particles are closest to
+    its vertices, and export one OBJ per block:
+
+        {path_prefix}/scene_fluid_0_{frame:04d}.obj
+        {path_prefix}/scene_fluid_1_{frame:04d}.obj
+        ...
+
+    Parameters
+    ----------
+    path_prefix : str
+        Directory prefix where OBJ files will be saved.
+    frame : int
+        Frame index (used only in file names).
+    n_fluid_blocks : int
+        Number of fluid blocks / fluid_ids (assumes they are 0..n_fluid_blocks-1).
+    iso_ratio : float
+        Isosurface ratio used for marching cubes.
+    """
+    verts, faces = reconstruct_fluid_surface(iso_ratio=iso_ratio)
+
+    if verts.shape[0] == 0 or faces.shape[0] == 0:
+        print(
+            f"[fluid_export] no verts or faces at frame {frame}, "
+            f"skip exporting per-block OBJs"
+        )
+        return
+
+    vert_fluid_id = _classify_vertices_by_fluid(verts)
+
+    # For each block, collect faces whose majority of vertices have that fluid_id
+    for bid in range(n_fluid_blocks):
+        face_mask = []
+
+        for _, tri in enumerate(faces):
+            fids = vert_fluid_id[tri]  # 3 vertex fluid ids
+            valid = fids[fids >= 0]
+            if valid.size == 0:
+                continue
+            counts = np.bincount(valid, minlength=n_fluid_blocks)
+            winner = int(np.argmax(counts))
+            if winner == bid and counts[winner] > 0:
+                face_mask.append(True)
+            else:
+                face_mask.append(False)
+
+        face_mask = np.array(face_mask, dtype=bool)
+
+        if not np.any(face_mask):
+            # No faces belong to this block in this frame
+            continue
+
+        faces_b = faces[face_mask]
+
+        # Collect unique vertices used by this block and remap indices
+        unique_vert_idx = np.unique(faces_b.reshape(-1))
+        vert_map = -np.ones(verts.shape[0], dtype=np.int32)
+        vert_map[unique_vert_idx] = np.arange(unique_vert_idx.shape[0], dtype=np.int32)
+
+        verts_b = verts[unique_vert_idx]
+        faces_b_mapped = vert_map[faces_b]
+
+        obj_path = f"{path_prefix}/scene_fluid_{bid}_{frame:04d}.obj"
+        with open(obj_path, "w") as f:
+            for v in verts_b:
+                f.write(f"v {v[0]} {v[1]} {v[2]}\n")
+            for tri in faces_b_mapped:
+                # OBJ uses 1-based indexing
+                f.write(f"f {int(tri[0]) + 1} {int(tri[1]) + 1} {int(tri[2]) + 1}\n")
+
+        print(
+            f"[fluid_export] block {bid}: exported {verts_b.shape[0]} verts, "
+            f"{faces_b_mapped.shape[0]} faces to {obj_path}"
+        )
+
+
+# ======================================================================
 # New: export fluid-only OBJ
 # ======================================================================
 def export_fluid_obj(path: str, iso_ratio: float = 0.5):
