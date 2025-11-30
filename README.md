@@ -32,3 +32,8 @@ $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and t
 
 ![dambreak](examples/dambreak.gif)
 ![dambreak_2](examples/dambreak_2.gif)
+
+### Layering
+
+![layering_2](examples/layering_2.gif)
+![layering_4](examples/layering_4.gif)
