@@ -17,23 +17,55 @@ inv_mass_val = 1.0 / mass_per_vertex
 gravity = ti.Vector([0.0, -9.8, 0.0])
 ground_y = 0.0  # 平面 y = 0 当桌面
 
-# 只用 structural springs（左右 + 上下）
-struct_springs_py = []  # (i, j, rest_length)
+# =====================
+# Rigid box
+# =====================
+BOX_CX, BOX_CY, BOX_CZ = 0.0, 0.25, 0.0  # box center
+BOX_HX, BOX_HY, BOX_HZ = 0.2, 0.15, 0.2  # half extents
+
+# =====================
+# Spring list（结构 + 剪切 + 弯曲）
+# =====================
+# struct_springs_py 里存所有弹簧：(i, j, rest_length)
+struct_springs_py = []
 
 
 def idx(ix, iy):
     return iy * Nx + ix
 
 
+# 预计算不同类型弹簧的 rest length
+L_struct = cloth_dx
+L_shear = cloth_dx * np.sqrt(2.0)
+L_bend = cloth_dx * 2.0
+
 for iy in range(Ny):
     for ix in range(Nx):
         i = idx(ix, iy)
+
+        # ---------- structural springs（左右 + 上下） ----------
         if ix + 1 < Nx:
             j = idx(ix + 1, iy)
-            struct_springs_py.append((i, j, cloth_dx))
+            struct_springs_py.append((i, j, L_struct))
         if iy + 1 < Ny:
             j = idx(ix, iy + 1)
-            struct_springs_py.append((i, j, cloth_dx))
+            struct_springs_py.append((i, j, L_struct))
+
+        # ---------- bending springs（隔一个点） ----------
+        if ix + 2 < Nx:
+            j = idx(ix + 2, iy)
+            struct_springs_py.append((i, j, L_bend))
+        if iy + 2 < Ny:
+            j = idx(ix, iy + 2)
+            struct_springs_py.append((i, j, L_bend))
+
+        # ---------- shear springs（对角线） ----------
+        if (ix + 1 < Nx) and (iy + 1 < Ny):
+            j = idx(ix + 1, iy + 1)
+            struct_springs_py.append((i, j, L_shear))
+        if (ix + 1 < Nx) and (iy - 1 >= 0):
+            j = idx(ix + 1, iy - 1)
+            struct_springs_py.append((i, j, L_shear))
 
 num_springs = len(struct_springs_py)
 
@@ -54,8 +86,12 @@ n_quads = (Nx - 1) * (Ny - 1)
 n_cloth_indices = n_quads * 6
 cloth_indices = ti.field(dtype=ti.i32, shape=n_cloth_indices)
 
-# 只画 structural 线段，方便 debug
+# 只画 line 方便 debug
 line_indices = ti.field(dtype=ti.i32, shape=num_springs * 2)
+
+# Rigid box mesh
+box_verts = ti.Vector.field(3, dtype=ti.f32, shape=8)
+box_indices = ti.field(dtype=ti.i32, shape=36)
 
 
 # =====================
@@ -74,14 +110,7 @@ def init_cloth():
         )
         v[i] = ti.Vector([0.0, 0.0, 0.0])
         inv_mass[i] = inv_mass_val
-        pinned[i] = 0
-
-    # 顶边一整排固定住
-    for ix in range(Nx):
-        i = (Ny - 1) * Nx + ix
-        pinned[i] = 1
-        inv_mass[i] = 0.0
-        v[i] = ti.Vector([0.0, 0.0, 0.0])
+        pinned[i] = 0  # 不再固定顶边，全部自由下落
 
 
 def init_springs_and_lines():
@@ -90,7 +119,7 @@ def init_springs_and_lines():
         spr_ij[s] = ti.Vector([i, j])
         spr_rest[s] = L0
 
-    # lines 只画 structural springs
+    # lines：每条弹簧画一条线
     idx_np = np.zeros(num_springs * 2, dtype=np.int32)
     for s, (i, j, _) in enumerate(struct_springs_py):
         idx_np[2 * s + 0] = i
@@ -99,7 +128,6 @@ def init_springs_and_lines():
 
 
 def init_cloth_indices():
-    # Python 端生成三角形索引
     idx_list = []
     for iy in range(Ny - 1):
         for ix in range(Nx - 1):
@@ -107,14 +135,77 @@ def init_cloth_indices():
             i1 = idx(ix + 1, iy)
             i2 = idx(ix + 1, iy + 1)
             i3 = idx(ix, iy + 1)
-            # 两个三角形 (i0,i1,i2) 和 (i0,i2,i3)
             idx_list.extend([i0, i1, i2, i0, i2, i3])
     arr = np.array(idx_list, dtype=np.int32)
     cloth_indices.from_numpy(arr)
 
 
+def init_box_mesh():
+    cx, cy, cz = BOX_CX, BOX_CY, BOX_CZ
+    hx, hy, hz = BOX_HX, BOX_HY, BOX_HZ
+
+    verts_np = np.array(
+        [
+            [cx - hx, cy - hy, cz - hz],
+            [cx + hx, cy - hy, cz - hz],
+            [cx + hx, cy + hy, cz - hz],
+            [cx - hx, cy + hy, cz - hz],
+            [cx - hx, cy - hy, cz + hz],
+            [cx + hx, cy - hy, cz + hz],
+            [cx + hx, cy + hy, cz + hz],
+            [cx - hx, cy + hy, cz + hz],
+        ],
+        dtype=np.float32,
+    )
+
+    idx_np = np.array(
+        [
+            0,
+            1,
+            2,
+            0,
+            2,
+            3,
+            4,
+            6,
+            5,
+            4,
+            7,
+            6,
+            0,
+            3,
+            7,
+            0,
+            7,
+            4,
+            1,
+            5,
+            6,
+            1,
+            6,
+            2,
+            0,
+            4,
+            5,
+            0,
+            5,
+            1,
+            3,
+            2,
+            6,
+            3,
+            6,
+            7,
+        ],
+        dtype=np.int32,
+    )
+
+    box_verts.from_numpy(verts_np)
+    box_indices.from_numpy(idx_np)
+
+
 # =====================
-# 物理步骤（简单稳定版）
+# 物理步骤
 # =====================
 @ti.kernel
 def copy_prev_pos():
@@ -132,7 +223,6 @@ def integrate(dt: ti.f32):
 
 @ti.kernel
 def solve_springs(iter_stiff: ti.f32):
-    # PBD style 约束：只做 structural，数值非常稳定
     for s in range(num_springs):
         ij = spr_ij[s]
         i = ij[0]
@@ -168,6 +258,64 @@ def collide_with_ground(offset: ti.f32):
 
 
 @ti.kernel
+def collide_with_box():
+    cx, cy, cz = BOX_CX, BOX_CY, BOX_CZ
+    hx, hy, hz = BOX_HX, BOX_HY, BOX_HZ
+
+    for i in range(n_verts):
+        if pinned[i] == 0:
+            p = x[i]
+            minb = ti.Vector([cx - hx, cy - hy, cz - hz])
+            maxb = ti.Vector([cx + hx, cy + hy, cz + hz])
+
+            inside = (
+                (p.x >= minb.x)
+                and (p.x <= maxb.x)
+                and (p.y >= minb.y)
+                and (p.y <= maxb.y)
+                and (p.z >= minb.z)
+                and (p.z <= maxb.z)
+            )
+
+            if inside:
+                px_min = p.x - minb.x
+                px_max = maxb.x - p.x
+                py_min = p.y - minb.y
+                py_max = maxb.y - p.y
+                pz_min = p.z - minb.z
+                pz_max = maxb.z - p.z
+
+                pen = ti.Vector([px_min, px_max, py_min, py_max, pz_min, pz_max])
+                min_idx = 0
+                min_val = pen[0]
+                for k in ti.static(range(1, 6)):
+                    if pen[k] < min_val:
+                        min_val = pen[k]
+                        min_idx = k
+
+                if min_idx == 0:
+                    p.x = minb.x
+                    v[i].x = 0.0
+                elif min_idx == 1:
+                    p.x = maxb.x
+                    v[i].x = 0.0
+                elif min_idx == 2:
+                    p.y = minb.y
+                    v[i].y = 0.0
+                elif min_idx == 3:
+                    p.y = maxb.y
+                    v[i].y = 0.0
+                elif min_idx == 4:
+                    p.z = minb.z
+                    v[i].z = 0.0
+                else:
+                    p.z = maxb.z
+                    v[i].z = 0.0
+
+                x[i] = p
+
+
+@ti.kernel
 def update_velocity(dt: ti.f32, damping: ti.f32):
     for i in range(n_verts):
         if pinned[i] == 0:
@@ -176,7 +324,7 @@ def update_velocity(dt: ti.f32, damping: ti.f32):
 
 
 # =====================
-# 主程序：离线渲染 cloth + ground
+# 主程序
 # =====================
 def main():
     os.makedirs("frames/cloth_test", exist_ok=True)
@@ -184,9 +332,10 @@ def main():
     init_cloth()
     init_springs_and_lines()
     init_cloth_indices()
+    init_box_mesh()
 
     window = ti.ui.Window(
-        "ClothOnPlaneClean",
+        "ClothOnBox",
         (1280, 720),
         vsync=False,
         show_window=False,
@@ -195,22 +344,21 @@ def main():
     scene = window.get_scene()
     camera = ti.ui.Camera()
 
-    dt = 1.0 / 240.0  # 时间步小一点，稳定
+    dt = 1.0 / 240.0
     substeps = 2
-    iter_per_step = 10  # 每步 spring 迭代次数
+    iter_per_step = 10
     n_frames = 240
 
     for frame in range(n_frames):
         for _ in range(substeps):
             copy_prev_pos()
             integrate(dt)
-            # 多次迭代结构弹簧
             for _ in range(iter_per_step):
-                solve_springs(0.3)  # stiffness per-iter
+                solve_springs(0.3)
                 collide_with_ground(0.005)
-            update_velocity(dt, 0.98)  # 一点阻尼
+                collide_with_box()
+            update_velocity(dt, 0.98)
 
-        # === 渲染 ===
         camera.position(0.4, 0.7, 1.3)
         camera.lookat(0.0, 0.2, 0.0)
         camera.up(0.0, 1.0, 0.0)
@@ -220,7 +368,7 @@ def main():
 
         canvas.set_background_color((0.1, 0.1, 0.12))
 
-        # 地面：简单画个灰色方块表示桌面（仅视觉用）
+        # ground
         ground_verts = np.array(
             [
                 [-0.5, ground_y, -0.5],
@@ -244,7 +392,16 @@ def main():
             index_count=6,
         )
 
-        # 布：用三角 mesh 画面（有些版本可能只看到线/黑面，但粒子一定是对的）
+        # box
+        scene.mesh(
+            box_verts,
+            indices=box_indices,
+            color=(0.2, 0.5, 0.9),
+            two_sided=True,
+            index_count=36,
+        )
+
+        # cloth
         scene.mesh(
             x,
             indices=cloth_indices,
@@ -253,7 +410,7 @@ def main():
             index_count=n_cloth_indices,
         )
 
-        # 同时再画一遍结构线网格 + 粒子，保证你“视觉上能确认是整块布”
+        # springs + particles
         scene.lines(
             x,
             indices=line_indices,

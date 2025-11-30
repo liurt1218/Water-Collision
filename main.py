@@ -1,278 +1,455 @@
-# main.py
 import os
 import taichi as ti
 import numpy as np
+import json
+
+import config as C
+import materials as M
+
+# Taichi initialization
+ti.init(arch=ti.gpu)  # or ti.cpu
+
+import state as S
+import fluid
+import step
+import rigid
+import surface
 import argparse
 
-from sim import config as C
-from sim.config import (
-    FluidBlockConfig,
-    FluidSceneConfig,
-    RigidBodyConfig,
-    RigidSceneConfig,
-)
-from sim.io_utils import load_obj
-import sim.state as S
-from sim.fluid import (
-    compute_density,
-    compute_alpha,
-    init_fluid_blocks,
-)
-from sim.rigid import init_rigid, update_mesh_vertices
-from sim.step import step
-from sim.surface import export_fluid_objs_per_block, export_rigid_obj
 
-
-def compute_fluid_block_ranges(fluid_scene_cfg: FluidSceneConfig):
-    """
-    Compute (offset, count) for each enabled fluid block in the global
-    particle array.
-
-    The order matches the order used in init_fluid_blocks(), so each
-    block occupies a contiguous range [offset, offset + count) in S.x.
-    """
-    ranges = []
-    offset = 0
-    for cfg in fluid_scene_cfg.blocks:
-        if not cfg.enabled:
-            continue
-        sx, sy, sz = cfg.size
-        h = cfg.particle_diameter
-        nx = int(sx / h)
-        ny = int(sy / h)
-        nz = int(sz / h)
-        n_block = nx * ny * nz
-        ranges.append((offset, n_block))
-        offset += n_block
-    return ranges
-
-
-def main(fluid_scene_cfg: FluidSceneConfig, rigid_scene_cfg: RigidSceneConfig):
-    """Entry point of the DFSPH + multi-rigid-body + multi-fluid-block simulation."""
-    ti.init(arch=ti.gpu, device_memory_fraction=0.8)
-    parser = argparse.ArgumentParser(description="DFSPH + Rigid simulation runner")
+# CLI parsing
+def parse_args():
+    parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--project",
+        "--out-dir",
         type=str,
-        required=True,
-        help="Project name used as output directory prefix",
+        default=C.output_dir_default,
+        help="Output directory for rendered frames / videos",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--sim-steps",
+        type=int,
+        default=C.sim_steps_default,
+        help="Total simulation steps (frames)",
+    )
+    parser.add_argument(
+        "--substeps",
+        type=int,
+        default=C.substeps_default,
+        help="Number of substeps between frames",
+    )
+    parser.add_argument(
+        "--scene-config",
+        type=str,
+        default="scene_config.json",
+        help="Scene config JSON path",
+    )
+    return parser.parse_args()
 
-    # ------------------------------------------------------------------
-    # Determine fluid particle count from all fluid blocks
-    # ------------------------------------------------------------------
-    n_fluid = C.compute_total_fluid_particles(fluid_scene_cfg)
 
-    # ------------------------------------------------------------------
-    # Collect per-body mesh vertex and index counts for rigid bodies
-    # ------------------------------------------------------------------
-    mesh_vert_counts = []
-    mesh_index_counts = []
-    for body in rigid_scene_cfg.bodies:
-        verts_np, faces_np = load_obj(body.mesh_path)
-        mesh_vert_counts.append(int(verts_np.shape[0]))
-        mesh_index_counts.append(int(faces_np.reshape(-1).size))
+# Material setup
+def build_materials():
+    # Define and register all materials used in this scene.
+    name_to_id = {}
 
-    # ------------------------------------------------------------------
-    # Allocate all Taichi fields (fluid + rigid + mesh)
-    # ------------------------------------------------------------------
-    S.allocate_fields(
-        n_fluid_in=n_fluid,
-        n_fluid_blocks_in=len(fluid_scene_cfg.blocks),
-        mesh_vert_counts=mesh_vert_counts,
-        mesh_index_counts=mesh_index_counts,
+    # Water
+    water = M.MaterialConfig(
+        rho0=1000.0,
+        E=5e4,
+        nu=0.2,
+        kind=C.WATER,
+        name="water",
+    )
+    water_id = M.global_registry.register(water)
+    name_to_id["water"] = water_id
+
+    # Soft jelly
+    jelly_soft = M.MaterialConfig(
+        rho0=1200.0,
+        E=3e4,
+        nu=0.45,
+        kind=C.JELLY,
+        name="jelly_soft",
+    )
+    jelly_soft_id = M.global_registry.register(jelly_soft)
+    name_to_id["jelly_soft"] = jelly_soft_id
+
+    # Hard jelly
+    jelly_hard = M.MaterialConfig(
+        rho0=1200.0,
+        E=1e5,
+        nu=0.45,
+        kind=C.JELLY,
+        name="jelly_hard",
+    )
+    jelly_hard_id = M.global_registry.register(jelly_hard)
+    name_to_id["jelly_hard"] = jelly_hard_id
+
+    # Snow
+    snow = M.MaterialConfig(
+        rho0=900.0,
+        E=2e5,
+        nu=0.2,
+        kind=C.SNOW,
+        name="snow",
+    )
+    snow_id = M.global_registry.register(snow)
+    name_to_id["snow"] = snow_id
+
+    # Oil
+    oil = M.MaterialConfig(
+        rho0=800.0,
+        E=5e4,
+        nu=0.2,
+        kind=C.OIL,
+        name="oil",
+    )
+    oil_id = M.global_registry.register(oil)
+    name_to_id["oil"] = oil_id
+
+    # Build kernel tables
+    M.build_kernel_tables()
+
+    return name_to_id
+
+
+# OBJ loading + preprocessing: scale into user bbox
+def load_obj_vertices_and_faces(obj_path: str):
+    # Minimal OBJ loader: parse 'v' and 'f' lines.
+    # Faces with 3 or 4 vertices are supported (quads are triangulated).
+    verts = []
+    faces = []
+
+    with open(obj_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if len(line) == 0 or line.startswith("#"):
+                continue
+            if line.startswith("v "):
+                parts = line.split()
+                if len(parts) >= 4:
+                    x = float(parts[1])
+                    y = float(parts[2])
+                    z = float(parts[3])
+                    verts.append([x, y, z])
+            elif line.startswith("f "):
+                parts = line.split()[1:]
+                # Each part can be like "i", "i/j", "i/j/k", etc.
+                idx = []
+                for p in parts:
+                    token = p.split("/")[0]
+                    if token == "":
+                        continue
+                    # OBJ is 1-based index
+                    idx.append(int(token) - 1)
+                if len(idx) == 3:
+                    faces.append(idx)
+                elif len(idx) == 4:
+                    # Triangulate quad: (0,1,2) and (0,2,3)
+                    faces.append([idx[0], idx[1], idx[2]])
+                    faces.append([idx[0], idx[2], idx[3]])
+                # Ignore polygons with >4 vertices for now
+
+    if not verts or not faces:
+        raise RuntimeError(f"[OBJ] Failed to load vertices/faces from: {obj_path}")
+
+    verts = np.array(verts, dtype=np.float32)
+    faces = np.array(faces, dtype=np.int32)
+    return verts, faces
+
+
+def compute_local_mesh_in_bbox(
+    verts_raw: np.ndarray,
+    half_extents_ratio: np.ndarray,
+):
+    # Scale and center the raw OBJ vertices using *per-axis scale ratios*.
+    vmin = verts_raw.min(axis=0)
+    vmax = verts_raw.max(axis=0)
+    ext_raw = vmax - vmin  # original extents (x,y,z)
+    center_raw = 0.5 * (vmin + vmax)
+
+    # Original half extents of the mesh bbox
+    half_raw = 0.5 * ext_raw  # (ext_x/2, ext_y/2, ext_z/2)
+
+    # Per-axis scale ratios (sx, sy, sz)
+    s = np.array(half_extents_ratio, dtype=np.float32)
+
+    # Local vertices:
+    #   center at origin, then per-axis scaling
+    verts_local = (verts_raw - center_raw) * s
+
+    # Physical half extents: original half extents * scale ratios
+    phys_half_extents = half_raw * s  # (hx, hy, hz)
+
+    return verts_local, phys_half_extents
+
+
+def load_scene_config(path: str):
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+def build_scene_from_config(name_to_id, cfg):
+    blocks = []
+    for fb in cfg.get("fluids", []):
+        ftype = fb.get("type", "cube")
+        if ftype == "cube":
+            min_corner = ti.Vector(fb["min_corner"])
+            size = ti.Vector(fb["size"])
+            mat_name = fb["material"]
+            if mat_name not in name_to_id:
+                raise ValueError(f"Unknown fluid material name: {mat_name}")
+            mat_id = name_to_id[mat_name]
+            blocks.append(
+                fluid.CubeVolume(
+                    min_corner,
+                    size,
+                    mat_id,
+                )
+            )
+        else:
+            raise NotImplementedError(f"Unsupported fluid type: {ftype}")
+    fluid.init_vols(blocks)
+
+
+# Rigid scene init: user configs + Taichi rigid fields + mesh cache
+def init_rigid_scene_from_user_configs(cfg):
+    user_rigids_cfg = cfg.get("rigids", [])
+    user_rigids = []
+    for r in user_rigids_cfg:
+        user_rigids.append(
+            {
+                "name": r["name"],
+                "obj_path": r["obj_path"],
+                "position": np.array(r["position"], dtype=np.float32),
+                "half_extents": np.array(r["half_extents"], dtype=np.float32),
+                "density": float(r.get("density", 500.0)),
+                "restitution": float(r.get("restitution", 0.2)),
+                "friction": float(r.get("friction", 0.3)),
+            }
+        )
+
+    n_rigid = len(user_rigids)
+    if n_rigid == 0:
+        print("[INFO] No rigid bodies configured.")
+        return
+
+    # 1) Allocate rigid-body physics fields and clear them
+    S.init_rigid_fields(n_rigid)
+    rigid.clear_rigid_bodies()
+
+    # 2) First pass: build triangle-soup arrays and per-rigid offsets
+    tri_vertices_all = []
+    tri_normals_all = []
+    vert_offsets = []
+    vert_counts = []
+    phys_half_extents_list = []
+
+    current_offset = 0
+
+    for cfg_r in user_rigids:
+        obj_path = cfg_r["obj_path"]
+        pos = cfg_r["position"]
+        half_extents = cfg_r["half_extents"]
+        density = cfg_r["density"]
+        restitution = cfg_r["restitution"]
+        friction = cfg_r["friction"]
+
+        # Load OBJ vertices/faces
+        verts_raw, faces = load_obj_vertices_and_faces(obj_path)  # (V,3) and (F,3)
+
+        # Scale into bbox in local space
+        verts_local_full, phys_half_extents = compute_local_mesh_in_bbox(
+            verts_raw,
+            half_extents,  # now interpreted as per-axis scale ratios
+        )
+        phys_half_extents_list.append(phys_half_extents.astype(np.float32))
+
+        # Flatten triangles into vertex list (triangle soup)
+        # faces: (F,3), tri_verts_local: (F*3,3)
+        tri_verts_local = verts_local_full[faces.reshape(-1)]
+
+        # Flat-shaded normals per triangle
+        F = faces.shape[0]
+        tri_normals_local = np.zeros_like(tri_verts_local, dtype=np.float32)
+        for f in range(F):
+            i0, i1, i2 = faces[f]
+            p0 = verts_local_full[i0]
+            p1 = verts_local_full[i1]
+            p2 = verts_local_full[i2]
+            n = np.cross(p1 - p0, p2 - p0)
+            norm = np.linalg.norm(n)
+            if norm > 1e-8:
+                n = n / norm
+            tri_normals_local[3 * f + 0] = n
+            tri_normals_local[3 * f + 1] = n
+            tri_normals_local[3 * f + 2] = n
+
+        n_tri_verts = tri_verts_local.shape[0]
+
+        vert_offsets.append(current_offset)
+        vert_counts.append(n_tri_verts)
+
+        tri_vertices_all.append(tri_verts_local)
+        tri_normals_all.append(tri_normals_local)
+
+        current_offset += n_tri_verts
+
+    # Concatenate all rigid meshes into one big buffer
+    tri_vertices_all = np.concatenate(tri_vertices_all, axis=0).astype(np.float32)
+    tri_normals_all = np.concatenate(tri_normals_all, axis=0).astype(np.float32)
+
+    total_verts = tri_vertices_all.shape[0]
+
+    # 3) Allocate Taichi mesh fields and upload data
+    S.init_rigid_mesh_fields(total_verts, n_rigid)
+    S.mesh_local_vertices.from_numpy(tri_vertices_all)
+    S.mesh_local_normals.from_numpy(tri_normals_all)
+    S.rb_mesh_vert_offset.from_numpy(np.array(vert_offsets, dtype=np.int32))
+    S.rb_mesh_vert_count.from_numpy(np.array(vert_counts, dtype=np.int32))
+
+    # 4) Initialize rigid-body physics for each config (bbox collider + inertia)
+    for idx, cfg_r in enumerate(user_rigids):
+        pos = cfg_r["position"]
+        density = cfg_r["density"]
+        restitution = cfg_r["restitution"]
+        friction = cfg_r["friction"]
+
+        # Use *physical* half extents (after scaling), not the raw ratios
+        phys_he = phys_half_extents_list[idx]  # (3,)
+        hx, hy, hz = phys_he.tolist()
+
+        cx, cy, cz = pos.tolist()
+
+        volume_box = (2.0 * hx) * (2.0 * hy) * (2.0 * hz)
+        mass = density * volume_box
+
+        rigid.init_rigid_from_bbox(
+            idx,
+            cx,
+            cy,
+            cz,
+            hx,
+            hy,
+            hz,
+            mass,
+            restitution,
+            friction,
+        )
+
+    print(
+        f"[INFO] Initialized {n_rigid} rigid bodies, total mesh vertices = {total_verts}."
     )
 
-    # ------------------------------------------------------------------
-    # Initialize fluid blocks and rigid bodies
-    # ------------------------------------------------------------------
-    if n_fluid > 0:
-        init_fluid_blocks(fluid_scene_cfg)
-    init_rigid(rigid_scene_cfg)
 
-    # Precompute DFSPH alpha and initial densities
-    if n_fluid > 0:
-        compute_density()
-        compute_alpha()
+# Rendering: draw full mesh for each rigid
+def draw_rigid_meshes(scene):
+    """
+    Draw all rigid bodies using their full meshes stored in a shared buffer.
+    """
+    if S.n_mesh_vertices == 0 or S.n_rigid_bodies == 0:
+        return
 
-    # ------------------------------------------------------------------
-    # Output directories
-    # ------------------------------------------------------------------
-    os.makedirs(f"frames/{args.project}", exist_ok=True)
-    os.makedirs(f"meshes/{args.project}", exist_ok=True)
-    os.makedirs(f"particles/{args.project}", exist_ok=True)
-    os.makedirs(f"renderings", exist_ok=True)
+    # Update world-space vertices/normals in Taichi
+    # update_all_mesh_vertices()
 
-    # ------------------------------------------------------------------
-    # Taichi GUI setup
-    # ------------------------------------------------------------------
+    # Get offsets/counts to Python (to use as plain ints)
+    offsets = S.rb_mesh_vert_offset.to_numpy()
+    counts = S.rb_mesh_vert_count.to_numpy()
+
+    for r in range(S.n_rigid_bodies):
+        # You can also check rb_active here if needed
+        scene.mesh(
+            S.mesh_vertices,
+            normals=S.mesh_normals,
+            vertex_offset=int(offsets[r]),
+            vertex_count=int(counts[r]),
+            color=(1.0, 0.5, 0.2),
+            two_sided=True,
+        )
+
+
+# Main loop
+def main():
+    args = parse_args()
+    output_dir = args.out_dir
+
+    # 1. Define materials (user can edit rho0/E/nu here)
+    name_to_id = build_materials()
+
+    scene_cfg = load_scene_config(args.scene_config)
+
+    # 2. Initialize fluid scene (multiple blocks)
+    build_scene_from_config(name_to_id, scene_cfg)
+
+    # 3. Initialize rigid bodies from user configs (OBJ + bbox + parameters)
+    init_rigid_scene_from_user_configs(scene_cfg)
+
+    # 4. Prepare output directory
+    os.makedirs(f"frames/{output_dir}", exist_ok=True)
+    os.makedirs("renderings", exist_ok=True)
+    # obj_out_dir = f"meshes/{output_dir}"
+    # os.makedirs(obj_out_dir, exist_ok=True)
+
+    # 5. Off-screen window
     window = ti.ui.Window(
-        "DFSPH + Rigid Demo (Multi-Fluid)", (1280, 720), show_window=False
+        "MPM Multi-Material + Rigid Mesh Demo",
+        C.window_res,
+        show_window=False,  # off-screen rendering
     )
     canvas = window.get_canvas()
     scene = window.get_scene()
+    camera = ti.ui.Camera()
 
-    n_frames = 400
-    substeps = 10
-
-    # Precompute fluid block ranges for rendering (optional, for per-block colors)
-    fluid_block_ranges = compute_fluid_block_ranges(fluid_scene_cfg)
-
-    for frame in range(n_frames):
-        # --------------------------------------------------------------
+    # 6. Main loop with fixed frame count
+    for frame in range(args.sim_steps):
         # Physics substeps
-        # --------------------------------------------------------------
-        for _ in range(substeps):
-            step()
+        for _ in range(args.substeps):
+            step.substep(C.gravity)
 
-        # --------------------------------------------------------------
-        # Camera and lights
-        # --------------------------------------------------------------
-        camera = ti.ui.Camera()
-        camera.position(1.6, 1.0, 1.6)
+        # surface.export_all_objs(
+        #    obj_out_dir,
+        #    frame,
+        #    iso_ratio=-1.0,
+        # )
+
+        # Camera
+        camera.position(1.6, 1.2, 1.6)
         camera.lookat(0.5, 0.4, 0.5)
         camera.up(0.0, 1.0, 0.0)
         scene.set_camera(camera)
+
+        # Lights
         scene.ambient_light((0.4, 0.4, 0.4))
         scene.point_light((2.0, 3.0, 2.0), (1.0, 1.0, 1.0))
 
-        # --------------------------------------------------------------
-        # Render fluid particles
-        # --------------------------------------------------------------
-        if n_fluid > 0 and S.n_fluid > 0:
-            # Option 1: render all fluid particles as a single group
-            # scene.particles(
-            #     S.x,
-            #     radius=0.01,
-            #     index_offset=0,
-            #     index_count=S.n_fluid,
-            #     color=(0.2, 0.6, 1.0),
-            # )
+        # Draw particles (single color, fixed radius)
+        scene.particles(
+            S.x,
+            radius=C.particle_radius,
+            per_vertex_color=S.color,
+        )
 
-            # Option 2: render each fluid block with its own color
-            for b_id, (offset, count) in enumerate(fluid_block_ranges):
-                if count <= 0:
-                    continue
-
-                # Simple color palette per block
-                if b_id == 0:
-                    color = (0.2, 0.6, 1.0)  # blue-ish
-                elif b_id == 1:
-                    color = (1.0, 0.4, 0.3)  # orange-red
-                else:
-                    color = (0.4, 1.0, 0.4)  # green-ish
-
-                scene.particles(
-                    S.x,
-                    radius=0.01,
-                    index_offset=offset,
-                    index_count=count,
-                    color=color,
-                )
-
-        # --------------------------------------------------------------
-        # Render rigid meshes (each body has its own mesh slice)
-        # --------------------------------------------------------------
-        for b in range(S.n_rigid_bodies):
-            # Update world-space vertices of body b
-            update_mesh_vertices(b)
-            scene.mesh(
-                S.mesh_vertices,
-                indices=S.mesh_indices,
-                vertex_offset=S.mesh_vert_offset[b],
-                vertex_count=S.mesh_vert_count[b],
-                index_offset=S.mesh_index_offset[b],
-                index_count=S.mesh_index_count[b],
-                color=(1.0, 0.5, 0.2),
-            )
-
-        if n_fluid > 0:
-            export_fluid_objs_per_block(
-                path_prefix=f"meshes/{args.project}",
-                frame=frame,
-                n_fluid_blocks=len(fluid_scene_cfg.blocks),
-                iso_ratio=0.5,
-            )
-
-        for b in range(S.n_rigid_bodies):
-            rigid_obj_path = f"meshes/{args.project}/scene_rigid_{b}_{frame:04d}.obj"
-            export_rigid_obj(rigid_obj_path, body_id=b)
+        # Draw all rigid bodies using full meshes
+        draw_rigid_meshes(scene)
 
         canvas.scene(scene)
 
-        fname = f"frames/{args.project}/frame_{frame:04d}.png"
+        # Save PNG
+        fname = f"frames/{output_dir}/frame_{frame:04d}.png"
         window.save_image(fname)
         print("saved", fname)
 
-    # ------------------------------------------------------------------
-    # Encode frames into an MP4 video using ffmpeg
-    # ------------------------------------------------------------------
+    # 7. Encode video with ffmpeg
     os.system(
-        f"ffmpeg -framerate 30 -i frames/{args.project}/frame_%04d.png "
-        f"-c:v libx264 -pix_fmt yuv420p renderings/{args.project}.mp4 -y"
+        f"ffmpeg -framerate 30 -i frames/{output_dir}/frame_%04d.png "
+        f"-c:v libx264 -pix_fmt yuv420p renderings/{output_dir}.mp4 -y"
     )
     os.system(
-        "ffmpeg -framerate 8 "
-        f"-i frames/{args.project}/frame_%04d.png "
-        '-vf "scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=sierra2_4a" '
-        f"renderings/{args.project}.gif -y"
+        f'ffmpeg -framerate 10 -i frames/{output_dir}/frame_%04d.png -vf "fps=10,scale=512:-1,palettegen=stats_mode=full" palette.png -y '
+        f'&& ffmpeg -framerate 10 -i frames/{output_dir}/frame_%04d.png -i palette.png -lavfi "fps=10,scale=512:-1,paletteuse=dither=bayer:bayer_scale=4" renderings/{output_dir}.gif -y'
     )
-    os.system(f"blender -b -P render.py -- --project {args.project}")
 
 
 if __name__ == "__main__":
-    # ------------------------------------------------------------------
-    # Fluid scene: multiple blocks, each with independent properties
-    # ------------------------------------------------------------------
-    fluid_scene_cfg = FluidSceneConfig(
-        blocks=[
-            # Block 0
-            FluidBlockConfig(
-                enabled=True,
-                base=(0.02, 0.02, 0.02),
-                size=(0.96, 0.4, 0.24),
-                particle_diameter=0.015,
-                rho0=1000.0,
-                surface_tension=0.04,
-                viscosity=5.0,
-            ),
-            # Block 1 (example: smaller block with different parameters)
-            # You can comment this out if you only want one block.
-            FluidBlockConfig(
-                enabled=True,
-                base=(0.02, 0.5, 0.02),
-                size=(0.96, 0.4, 0.24),
-                particle_diameter=0.015,
-                rho0=800.0,
-                surface_tension=0.04,
-                viscosity=2.0,
-            ),
-        ]
-    )
-
-    # ------------------------------------------------------------------
-    # Rigid scene: each body can have its own mesh and parameters
-    # ------------------------------------------------------------------
-    rigid_scene_cfg = RigidSceneConfig(
-        bodies=[
-            RigidBodyConfig(
-                mesh_path="obj/teapot.obj",
-                center=(0.5, 0.2, 0.5),
-                half_extents=(0.18, 0.18, 0.18),
-                density=800.0,
-                restitution=0.6,
-                friction=0.2,
-            ),
-            RigidBodyConfig(
-                mesh_path="obj/bunny.obj",
-                center=(0.5, 0.6, 0.5),
-                half_extents=(0.1, 0.1, 0.1),
-                density=300.0,
-                restitution=0.3,
-                friction=0.3,
-            ),
-        ]
-    )
-
-    main(fluid_scene_cfg, rigid_scene_cfg)
+    main()

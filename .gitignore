@@ -2,7 +2,3 @@ frames/
 renderings/
 __pycache__/
 imgui.ini
-meshes/
-blender_frames/
-particles/
-blender_renderings/
