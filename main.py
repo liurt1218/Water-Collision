@@ -48,67 +48,25 @@ def parse_args():
 
 
 # Material setup
-def build_materials():
+def build_materials(scene_cfg):
     # Define and register all materials used in this scene.
     name_to_id = {}
+    fbs = scene_cfg.get("fluids", [])
 
-    # Water
-    water = M.MaterialConfig(
-        rho0=1000.0,
-        E=5e4,
-        nu=0.2,
-        kind=C.WATER,
-        name="water",
-    )
-    water_id = M.global_registry.register(water)
-    name_to_id["water"] = water_id
+    for fb in fbs:
+        config = M.MaterialConfig(
+            rho0=fb["rho"],
+            E=fb["E"],
+            nu=fb["nu"],
+            kind=fb["kind"],
+            name=fb["name"],
+        )
+        mat_id = M.global_registry.register(config)
+        name_to_id[fb["name"]] = mat_id
 
-    # Soft jelly
-    jelly_soft = M.MaterialConfig(
-        rho0=1200.0,
-        E=3e4,
-        nu=0.45,
-        kind=C.JELLY,
-        name="jelly_soft",
-    )
-    jelly_soft_id = M.global_registry.register(jelly_soft)
-    name_to_id["jelly_soft"] = jelly_soft_id
-
-    # Hard jelly
-    jelly_hard = M.MaterialConfig(
-        rho0=1200.0,
-        E=1e5,
-        nu=0.45,
-        kind=C.JELLY,
-        name="jelly_hard",
-    )
-    jelly_hard_id = M.global_registry.register(jelly_hard)
-    name_to_id["jelly_hard"] = jelly_hard_id
-
-    # Snow
-    snow = M.MaterialConfig(
-        rho0=900.0,
-        E=2e5,
-        nu=0.2,
-        kind=C.SNOW,
-        name="snow",
-    )
-    snow_id = M.global_registry.register(snow)
-    name_to_id["snow"] = snow_id
-
-    # Oil
-    oil = M.MaterialConfig(
-        rho0=800.0,
-        E=5e4,
-        nu=0.2,
-        kind=C.OIL,
-        name="oil",
-    )
-    oil_id = M.global_registry.register(oil)
-    name_to_id["oil"] = oil_id
-
-    # Build kernel tables
-    M.build_kernel_tables()
+    if len(fbs) > 0:
+        # Build kernel tables
+        M.build_kernel_tables()
 
     return name_to_id
 
@@ -196,7 +154,7 @@ def build_scene_from_config(name_to_id, cfg):
         if ftype == "cube":
             min_corner = ti.Vector(fb["min_corner"])
             size = ti.Vector(fb["size"])
-            mat_name = fb["material"]
+            mat_name = fb["name"]
             if mat_name not in name_to_id:
                 raise ValueError(f"Unknown fluid material name: {mat_name}")
             mat_id = name_to_id[mat_name]
@@ -373,11 +331,10 @@ def draw_rigid_meshes(scene):
 def main():
     args = parse_args()
     output_dir = args.out_dir
+    scene_cfg = load_scene_config(args.scene_config)
 
     # 1. Define materials (user can edit rho0/E/nu here)
-    name_to_id = build_materials()
-
-    scene_cfg = load_scene_config(args.scene_config)
+    name_to_id = build_materials(scene_cfg)
 
     # 2. Initialize fluid scene (multiple blocks)
     build_scene_from_config(name_to_id, scene_cfg)

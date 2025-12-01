@@ -255,13 +255,14 @@ def substep(gravity: float):
     # mpm step
     substep_mpm(gravity)
 
-    # integrate
-    rigid.integrate_rigid_bodies(gravity)
+    if S.N_RIGID > 0:
+        # integrate
+        rigid.integrate_rigid_bodies(gravity)
 
-    rigid.update_all_mesh_vertices()
+        rigid.update_all_mesh_vertices()
 
-    rigid.handle_rigid_domain_walls()
+        rigid.handle_rigid_domain_walls()
 
-    rigid.handle_rigid_collisions()
+        rigid.handle_rigid_collisions()
 
-    rigid.update_all_mesh_vertices()
+        rigid.update_all_mesh_vertices()

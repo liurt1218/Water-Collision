@@ -17,8 +17,7 @@ inv_dx = 1.0 / dx
 WATER = 0
 JELLY = 1
 SNOW = 2
-OIL = 3
-N_MATERIALS = 4
+N_MATERIALS = 3
 
 # Volume related
 p_vol = (dx * 0.5) ** dim
