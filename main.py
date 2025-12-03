@@ -13,7 +13,8 @@ import state as S
 import fluid
 import step
 import rigid
-import surface
+# import surface
+import render
 import argparse
 
 
@@ -364,38 +365,8 @@ def main():
         for _ in range(args.substeps):
             step.substep(C.gravity)
 
-        # surface.export_all_objs(
-        #    obj_out_dir,
-        #    frame,
-        #    iso_ratio=-1.0,
-        # )
+        render.render_frame(frame, output_dir)
 
-        # Camera
-        camera.position(1.6, 1.2, 1.6)
-        camera.lookat(0.5, 0.4, 0.5)
-        camera.up(0.0, 1.0, 0.0)
-        scene.set_camera(camera)
-
-        # Lights
-        scene.ambient_light((0.4, 0.4, 0.4))
-        scene.point_light((2.0, 3.0, 2.0), (1.0, 1.0, 1.0))
-
-        # Draw particles (single color, fixed radius)
-        scene.particles(
-            S.x,
-            radius=C.particle_radius,
-            per_vertex_color=S.color,
-        )
-
-        # Draw all rigid bodies using full meshes
-        draw_rigid_meshes(scene)
-
-        canvas.scene(scene)
-
-        # Save PNG
-        fname = f"frames/{output_dir}/frame_{frame:04d}.png"
-        window.save_image(fname)
-        print("saved", fname)
 
     # 7. Encode video with ffmpeg
     os.system(
