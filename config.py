@@ -8,7 +8,7 @@ domain_min = (0.0, 0.0, 0.0)
 domain_max = (1.0, 1.0, 1.0)
 
 # Particle and grid
-n_particles = 100_000
+n_particles = 500000
 n_grid = 64
 dx = 1.0 / n_grid
 inv_dx = 1.0 / dx

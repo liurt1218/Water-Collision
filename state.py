@@ -12,6 +12,14 @@ C_apic = ti.Matrix.field(C.dim, C.dim, float, C.n_particles)  # APIC affine C
 F = ti.Matrix.field(3, 3, dtype=float, shape=C.n_particles)  # deformation gradient
 Jp = ti.field(float, C.n_particles)  # plastic J (snow/liquid)
 
+# Particle-level boundary info (for rigid coupling, deprecated)
+p_cdf_states = ti.field(dtype=ti.u64, shape=C.n_particles)
+boundary_dist = ti.field(dtype=float, shape=C.n_particles)
+boundary_normal = ti.Vector.field(3, dtype=float, shape=C.n_particles)
+near_boundary = ti.field(dtype=ti.i32, shape=C.n_particles)
+boundary_rigid_id = ti.field(dtype=ti.i32, shape=C.n_particles)
+boundary_side = ti.field(dtype=ti.i8, shape=C.n_particles)
+
 materials = ti.field(int, C.n_particles)  # material_id
 is_used = ti.field(int, C.n_particles)  # 0=unused, 1=used
 color = ti.Vector.field(3, float, C.n_particles)
@@ -21,7 +29,15 @@ fluid_surface_y_mat = ti.field(dtype=ti.f32, shape=N_MATERIALS)
 # Grid fields
 grid_v = ti.Vector.field(C.dim, float, (C.n_grid,) * C.dim)
 grid_m = ti.field(float, (C.n_grid,) * C.dim)
-grid_pressure = ti.field(dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
+
+# Grid distances
+grid_side = ti.field(dtype=ti.u64, shape=(C.n_grid, C.n_grid, C.n_grid))
+grid_dist = ti.field(dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
+grid_rigid = ti.field(dtype=ti.i32, shape=(C.n_grid, C.n_grid, C.n_grid))
+grid_normal = ti.Vector.field(3, dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
+
+# deprecated
+grid_pressure = ti.Vector.field(3, dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
 grid_pressure_w = ti.field(dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
 
 # Rigid body state (runtime-sized, depends on user input)

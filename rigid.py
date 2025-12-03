@@ -15,7 +15,7 @@ grid_indices = ti.field(
 )
 
 
-# Rigid-body collision helpers
+# Rigid-body collision helpers (deprecated)
 @ti.func
 def closest_point_on_triangle(p, a, b, c):
     # Compute the closest point on triangle (a,b,c) to point p.
@@ -79,6 +79,7 @@ def closest_point_on_triangle(p, a, b, c):
     return best
 
 
+# deprecated
 @ti.func
 def query_mesh_contact(x_world, r: int, max_dist: float):
     # Exact point-to-triangle distance (unsigned) to mesh of rigid r.
@@ -108,6 +109,7 @@ def query_mesh_contact(x_world, r: int, max_dist: float):
 
         for t in range(n_tris):
             base = start + t * 3
+            n_face_local = S.mesh_local_normals[base]
 
             a = S.mesh_local_vertices[base + 0]
             b = S.mesh_local_vertices[base + 1]
@@ -117,20 +119,113 @@ def query_mesh_contact(x_world, r: int, max_dist: float):
             diff = x_local - q
             d = diff.norm()
 
-            if d < best_d:
+            if d < best_d and diff.dot(n_face_local) >= 0.0:
+                best_n_world = R @ n_face_local
                 best_d = d
                 hit = True
 
-                n_face_local = S.mesh_local_normals[base]
-                n_local = ti.Vector([0.0, 0.0, 0.0])
-                if diff.dot(n_face_local) >= 0.0:
-                    n_local = n_face_local
-                else:
-                    n_local = -n_face_local
-
-                best_n_world = R @ n_local
-
     return hit, best_n_world, best_d
+
+
+@ti.func
+def point_in_triangle(p, a, b, c):
+    """
+    Check if point p lies inside triangle (a, b, c) using barycentric coordinates.
+    """
+    v0 = b - a
+    v1 = c - a
+    v2 = p - a
+
+    d00 = v0.dot(v0)
+    d01 = v0.dot(v1)
+    d11 = v1.dot(v1)
+    d20 = v2.dot(v0)
+    d21 = v2.dot(v1)
+
+    denom = d00 * d11 - d01 * d01
+    inside = False
+
+    if denom > 1e-12:
+        inv_denom = 1.0 / denom
+        v = (d11 * d20 - d01 * d21) * inv_denom
+        w = (d00 * d21 - d01 * d20) * inv_denom
+        u = 1.0 - v - w
+
+        eps = 1e-6
+        inside = (u >= -eps) and (v >= -eps) and (w >= -eps)
+
+    return inside
+
+
+@ti.func
+def query_mesh_contact_strict_cdf(
+    x_world: ti.types.vector(3, float), rigid_id: int, max_distance: float
+):
+    """
+    Query the signed distance from a point to a rigid mesh surface.
+
+    Args:
+        x_world:      query point in world space.
+        rigid_id:     id of the rigid body.
+        max_distance: maximum distance to consider (search band).
+
+    Returns:
+        hit:          True if the closest point is within max_distance.
+        best_n:       outward normal at the closest point.
+        best_signed:  signed distance ( >0 outside, <0 inside ).
+    """
+    best_abs = max_distance  # best absolute distance
+    best_signed = 0.0  # best signed distance
+    best_n = ti.Vector.zero(float, 3)
+    hit = False
+
+    center = S.rb_pos[rigid_id]  # rigid body center (used to orient normals)
+
+    # Vertex range for this rigid body
+    offset = S.rb_mesh_vert_offset[rigid_id]
+    count = S.rb_mesh_vert_count[rigid_id]
+    num_tris = count // 3
+
+    for t in range(num_tris):
+        i0 = offset + t * 3
+        i1 = i0 + 1
+        i2 = i0 + 2
+
+        v0 = S.mesh_vertices[i0]
+        v1 = S.mesh_vertices[i1]
+        v2 = S.mesh_vertices[i2]
+
+        # Triangle normal
+        e0 = v1 - v0
+        e1 = v2 - v0
+        n = e0.cross(e1)
+        n_len = n.norm()
+        if n_len >= 1e-8:
+            n = n / n_len
+
+            # Orient normal to point outward from the rigid center
+            # If n points towards the center, flip it.
+            if n.dot(v0 - center) < 0.0:
+                n = -n
+
+            # Signed distance to the triangle plane (positive = outside)
+            signed_d = (x_world - v0).dot(n)
+
+            # Ignore if outside search band
+            if ti.abs(signed_d) <= max_distance:
+                # Projection of x_world onto the plane
+                p = x_world - signed_d * n
+
+                # Strict: projection must lie inside the triangle
+                if point_in_triangle(p, v0, v1, v2):
+                    abs_d = ti.abs(signed_d)
+                    if abs_d < best_abs:
+                        best_abs = abs_d
+                        best_signed = signed_d
+                        best_n = n
+                        hit = True
+
+    return hit, best_n, best_signed
 
 
 # Rigid-body initialization helpers

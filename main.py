@@ -45,6 +45,18 @@ def parse_args():
         default="scene_config.json",
         help="Scene config JSON path",
     )
+    parser.add_argument(
+        "--particles",
+        type=int,
+        default=500000,
+        help="Number of particles",
+    )
+    parser.add_argument(
+        "--grid",
+        type=int,
+        default=64,
+        help="Number of grids",
+    )
     return parser.parse_args()
 
 
@@ -332,6 +344,8 @@ def draw_rigid_meshes(scene):
 def main():
     args = parse_args()
     output_dir = args.out_dir
+    C.n_particles = args.particles
+    C.n_grid = args.grid
     scene_cfg = load_scene_config(args.scene_config)
 
     # 1. Define materials (user can edit rho0/E/nu here)
