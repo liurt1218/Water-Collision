@@ -3,6 +3,7 @@
 ## Features:
 
 - Basic coupling between rigid & rigid and rigid & fluid.
+- Surface reconstruction that supports multiple rigid bodies and fluids in one scene.
 - Video rendering pipeline (`.png` frames and `.mp4` videos currently).
 - Support JSON files for scene config. Pass in via the CLI `--scene-config YOUR_SCENE.json`.
 - Collision acceleration via speeding up closest-point detection via grid based search.
@@ -17,7 +18,7 @@ $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and t
 
 ## TODOs:
 
-- Surface reconstruction.
+- Surface reconstruction. (Done)
 - Add deformable objects (e.g. cloth).
 - Add collision logic for walls (not only bottom). (Done)
 - Read configuration files. (Done)
