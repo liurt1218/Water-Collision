@@ -4,11 +4,11 @@
       "type": "cube",
       "min_corner": [0.4, 0.6, 0.4],
       "size": [0.2, 0.3, 0.2],
-      "name": "water",
+      "name": "jelly",
       "rho": 1000,
       "E": 5e3,
       "nu": 0.499,
-      "kind": 0
+      "kind": 1
     }
   ],
   "rigids": [
@@ -24,7 +24,7 @@
   ],
   "particles": 50000,
   "grids": 64,
-  "out_dir": "flood",
+  "out_dir": "sticky",
   "sim_steps": 200,
   "substeps": 200
 }

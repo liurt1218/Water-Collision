@@ -333,7 +333,10 @@ def main():
         for _ in range(scene_cfg["substeps"]):
             step.substep(C.gravity)
 
-        render.render_frame(frame, output_dir)
+        try:
+            render.render_frame(frame, output_dir)
+        except Exception as e:
+            print(f"Error rendering frame {frame} with error {e}")
 
     # 6. Encode video with ffmpeg
     os.system(

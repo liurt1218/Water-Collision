@@ -60,7 +60,7 @@
   ],
   "particles": 500000,
   "grids": 64,
-  "sim_steps": 100,
+  "sim_steps": 600,
   "substeps": 200,
   "out_dir": "fall_multiobj_soft_const"
 }

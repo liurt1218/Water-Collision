@@ -33,9 +33,9 @@
     },
     {
       "name": "rigid_2",
-      "obj_path": "assets/sphere.obj",
+      "obj_path": "assets/cow.obj",
       "position": [0.5, 0.5, 0.5],
-      "half_extents": [0.1, 0.1, 0.1],
+      "half_extents": [0.01, 0.01, 0.01],
       "density": 2500.0,
       "restitution": 0.2,
       "friction": 0.0
