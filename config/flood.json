@@ -2,24 +2,29 @@
   "fluids": [
     {
       "type": "cube",
-      "min_corner": [0.02, 0.6, 0.02],
-      "size": [0.96, 0.3, 0.96],
-      "name": "water_high",
+      "min_corner": [0.4, 0.6, 0.4],
+      "size": [0.2, 0.3, 0.2],
+      "name": "water",
       "rho": 1000,
-      "E": 5e4,
-      "nu": 0.2,
+      "E": 5e3,
+      "nu": 0.499,
       "kind": 0
     }
   ],
   "rigids": [
     {
       "name": "rigid_1",
-      "obj_path": "assets/teapot.obj",
+      "obj_path": "assets/bunny.obj",
       "position": [0.5, 0.3, 0.5],
-      "half_extents": [0.04, 0.04, 0.04],
-      "density": 600.0,
+      "half_extents": [0.1, 0.1, 0.1],
+      "density": 2000.0,
       "restitution": 0.2,
       "friction": 0.0
     }
-  ]
+  ],
+  "particles": 50000,
+  "grids": 64,
+  "out_dir": "flood",
+  "sim_steps": 600,
+  "substeps": 200
 }

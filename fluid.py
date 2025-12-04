@@ -15,6 +15,7 @@ class CubeVolume:
 
 @ti.kernel
 def set_all_unused():
+    # Must have n_particles > 0
     for p in range(C.n_particles):
         S.is_used[p] = 0
         S.x[p] = ti.Vector([0.0, 0.0, 0.0])
@@ -54,11 +55,11 @@ def init_cube_vol(
         S.materials[i] = material_id
         S.is_used[i] = 1
         if material_id == 0:  # WATER
-            S.color[i] = ti.Vector([0.2, 0.6, 1.0])  # blue
+            S.color[i] = ti.Vector([0.2, 0.6, 1.0])
         elif material_id == 1:  # JELLY (soft or hard)
-            S.color[i] = ti.Vector([1.0, 0.3, 0.3])  # red
+            S.color[i] = ti.Vector([1.0, 0.7, 0.75])
         elif material_id == 2:  # SNOW
-            S.color[i] = ti.Vector([0.9, 0.9, 0.9])  # white
+            S.color[i] = ti.Vector([0.9, 0.9, 0.9])
         else:
             S.color[i] = ti.Vector([0.6, 0.6, 0.6])
 
@@ -93,20 +94,3 @@ def init_vols(vols):
             next_p += par_count
         else:
             raise RuntimeError("Unknown volume type in init_vols()")
-
-
-# deprecated
-@ti.kernel
-def update_fluid_surfaces():
-    for mat in ti.static(range(S.N_MATERIALS)):
-        S.fluid_surface_y_mat[mat] = -1e6
-
-    for p in S.x:
-        if S.is_used[p] == 1:
-            mat = S.materials[p]
-            y = S.x[p][1]
-            if y > S.fluid_surface_y_mat[mat]:
-                S.fluid_surface_y_mat[mat] = y
-
-    for mat in ti.static(range(S.N_MATERIALS)):
-        S.fluid_surface_y_mat[mat] -= 0.5 * C.dx

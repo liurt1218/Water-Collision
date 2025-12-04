@@ -4,14 +4,14 @@
 
 - Basic coupling between rigid & rigid and rigid & fluid.
 - Surface reconstruction that supports multiple rigid bodies and fluids in one scene.
-- Video rendering pipeline (`.png` frames and `.mp4` videos currently).
+- Video rendering pipeline (`.png` frames and `.mp4` videos / `.gif` images currently).
 - Support JSON files for scene config. Pass in via the CLI `--scene-config YOUR_SCENE.json`.
 - Collision acceleration via speeding up closest-point detection via grid based search.
 
 ## How to run:
 
 ```bash
-python main.py --scene-config config/dambreak.json --sim-steps 400 --substeps 200 --out-dir dambreak
+python main.py --scene-config config/fall_multiobj_soft_const.json
 ```
 
 $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and the rendering result to `renderings/<out_dir>.mp4`.

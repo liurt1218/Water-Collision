@@ -75,113 +75,6 @@ def rasterize_rigid_boundary_cdf(contact_band: float):
             S.grid_normal[I] = ti.Vector.zero(float, 3)
 
 
-# deprecated
-@ti.kernel
-def gather_boundary_from_grid(contact_band: float):
-    """
-    For each particle, gather boundary information from nearby grid nodes.
-
-    For each particle p, we find the closest rigid surface in the grid-based
-    signed distance field and compute a contact normal via central differences.
-
-    Writes:
-      near_boundary[p]      : 1 if a rigid is within contact_band, else 0
-      boundary_rigid_id[p]  : id of the nearest rigid (or -1)
-      boundary_dist[p]      : positive distance to that rigid (<= contact_band)
-      boundary_normal[p]    : contact normal pointing from rigid to particle
-      boundary_side[p]      : -1 (inside), 0 (no rigid), +1 (outside)
-    """
-    for p in range(C.n_particles):
-        if S.is_used[p] == 0:
-            S.near_boundary[p] = 0
-            S.boundary_rigid_id[p] = -1
-            S.boundary_dist[p] = 1e6  # deprecated
-            S.boundary_normal[p] = ti.Vector.zero(float, 3)
-            S.boundary_side[p] = ti.i8(0)
-            S.p_cdf_states[p] = ti.u64(0)  # unused, keep cleared
-            continue
-
-        Xp = S.x[p]
-        pos_grid = Xp * C.inv_dx
-        base = (pos_grid - 0.5).cast(int)
-
-        best_abs = contact_band
-        best_signed = 1e6
-        best_node = ti.Vector.zero(int, 3)
-        best_rigid = -1
-
-        # search in a 3x3x3 grid neighborhood
-        for i, j, k in ti.static(ti.ndrange(3, 3, 3)):
-            node = base + ti.Vector([i, j, k])
-            if (
-                0 <= node[0] < C.n_grid
-                and 0 <= node[1] < C.n_grid
-                and 0 <= node[2] < C.n_grid
-            ):
-                d = S.grid_dist[node]  # signed distance at node
-                rid = S.grid_rigid[node]
-                if rid >= 0:
-                    abs_d = ti.abs(d)
-                    if abs_d < best_abs:
-                        best_abs = abs_d
-                        best_signed = d
-                        best_node = node
-                        best_rigid = rid
-
-        if best_rigid != -1 and best_abs < contact_band:
-            # Estimate normal via central differences on the signed distance field
-            g = ti.Vector.zero(float, 3)
-            for axis in ti.static(range(3)):
-                e = ti.Vector([0, 0, 0])
-                e[axis] = 1
-
-                node_p = best_node + e
-                node_m = best_node - e
-
-                for d in ti.static(range(3)):
-                    if node_p[d] < 0:
-                        node_p[d] = 0
-                    if node_p[d] >= C.n_grid:
-                        node_p[d] = C.n_grid - 1
-                    if node_m[d] < 0:
-                        node_m[d] = 0
-                    if node_m[d] >= C.n_grid:
-                        node_m[d] = C.n_grid - 1
-
-                d_p = S.grid_dist[node_p]
-                d_m = S.grid_dist[node_m]
-                g[axis] = (d_p - d_m) * (0.5 * C.inv_dx)
-
-            n = ti.Vector([0.0, 1.0, 0.0])
-            if g.norm() > 1e-6:
-                n = g.normalized()
-            else:
-                n = ti.Vector([0.0, 1.0, 0.0])
-
-            # Ensure normal points from rigid to particle
-            center = S.rb_pos[best_rigid]
-            if n.dot(Xp - center) < 0.0:
-                n = -n
-
-            S.near_boundary[p] = 1
-            S.boundary_rigid_id[p] = best_rigid
-            S.boundary_dist[p] = best_abs
-            S.boundary_normal[p] = n
-            # side: positive signed distance -> outside, negative -> inside
-            side = ti.i8(1)
-            if best_signed < 0.0:
-                side = ti.i8(-1)
-            S.boundary_side[p] = side
-            S.p_cdf_states[p] = ti.u64(0)  # not used in this scheme
-        else:
-            S.near_boundary[p] = 0
-            S.boundary_rigid_id[p] = -1
-            S.boundary_dist[p] = 1e6
-            S.boundary_normal[p] = ti.Vector.zero(float, 3)
-            S.boundary_side[p] = ti.i8(0)
-            S.p_cdf_states[p] = ti.u64(0)
-
-
 @ti.func
 def friction_project(v_rel, n, mu):
     """
@@ -243,9 +136,7 @@ def substep_mpm(gravity: float, contact_band: float):
     for I in ti.grouped(S.grid_m):
         S.grid_v[I] = ti.Vector.zero(float, dim)
         S.grid_m[I] = 0.0
-        # deprecated
         S.grid_pressure[I] = 0.0
-        S.grid_pressure_w[I] = 0.0
 
     # 2. P2G (standard MPM, no rigid logic)
     for p in S.x:
@@ -319,10 +210,6 @@ def substep_mpm(gravity: float, contact_band: float):
                 p
             ].transpose() + ti.Matrix.identity(float, 3) * la * J * (J - 1.0)
 
-            # (deprecated) particle pressure
-            trace_P = P[0, 0] + P[1, 1] + P[2, 2]
-            p_particle = -trace_P / dim
-
             stress = (-C.dt * C.p_vol * 4.0 * C.inv_dx * C.inv_dx) * P
             affine = stress + p_mass * Cp
 
@@ -343,7 +230,6 @@ def substep_mpm(gravity: float, contact_band: float):
                     )
                     ti.atomic_add(S.grid_m[node], weight * p_mass)
                     ti.atomic_add(S.grid_pressure[node], weight * stress @ dpos)
-                    ti.atomic_add(S.grid_pressure_w[node], weight)
 
     # 3. Grid operations: normalize, gravity, outer box, THEN rigid-fluid contact on grid
     for I in ti.grouped(S.grid_m):
@@ -442,18 +328,10 @@ def substep(gravity: float):
     if S.N_RIGID > 0:
         clear_cdf_grid()
         rasterize_rigid_boundary_cdf(contact_band)
-        gather_boundary_from_grid(contact_band)
-    else:
-        # No rigid bodies: clear particle boundary info
-        for p in range(C.n_particles):
-            S.near_boundary[p] = 0
-            S.boundary_rigid_id[p] = -1
-            S.boundary_dist[p] = 1e6
-            S.boundary_normal[p] = ti.Vector([0.0, 0.0, 0.0])
-            S.boundary_side[p] = 0
 
-    # MPM step with band-aware rigid-fluid coupling
-    substep_mpm(gravity, contact_band)
+    if C.n_particles > 0:
+        # MPM step with band-aware rigid-fluid coupling
+        substep_mpm(gravity, contact_band)
 
     if S.N_RIGID > 0:
         # Rigid-body integration and collisions

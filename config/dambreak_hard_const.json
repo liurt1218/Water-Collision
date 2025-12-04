@@ -6,8 +6,8 @@
       "size": [0.96, 0.96, 0.3],
       "name": "water",
       "rho": 1000,
-      "E": 5e4,
-      "nu": 0.2,
+      "E": 1e5,
+      "nu": 0.49,
       "kind": 0
     }
   ],
@@ -27,8 +27,13 @@
       "position": [0.7, 0.5, 0.5],
       "half_extents": [0.04, 0.04, 0.04],
       "density": 300.0,
-      "restitution": 0.1,
-      "friction": 0.4
+      "restitution": 0.2,
+      "friction": 0.3
     }
-  ]
+  ],
+  "particles": 500000,
+  "grids": 64,
+  "out_dir": "dambreak_hard_const",
+  "sim_steps": 600,
+  "substeps": 200
 }

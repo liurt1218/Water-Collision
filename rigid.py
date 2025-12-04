@@ -2,7 +2,6 @@
 import taichi as ti
 import config as C
 import state as S
-import materials as M
 
 
 GRID_RES = 64
@@ -158,9 +157,7 @@ def point_in_triangle(p, a, b, c):
 
 
 @ti.func
-def query_mesh_contact_strict_cdf(
-    x_world: ti.types.vector(3, float), rigid_id: int, max_distance: float
-):
+def query_mesh_contact_strict_cdf(x_world, rigid_id: int, max_distance: float):
     """
     Query the signed distance from a point to a rigid mesh surface.
 
@@ -408,58 +405,6 @@ def update_all_mesh_vertices():
                     n_local = S.mesh_local_normals[idx]
                     S.mesh_vertices[idx] = p + R @ x_local
                     S.mesh_normals[idx] = R @ n_local
-
-
-# deprecated
-@ti.kernel
-def apply_buoyancy_forces():
-    g = -C.gravity
-
-    for r in range(S.N_RIGID):
-        if S.rb_active[r] == 1:
-            R = S.rb_rot[r]
-            p_r = S.rb_pos[r]
-
-            start = S.rb_mesh_vert_offset[r]
-            count = S.rb_mesh_vert_count[r]
-            n_tris = count // 3
-
-            for t in range(n_tris):
-                base = start + t * 3
-
-                a_local = S.mesh_local_vertices[base + 0]
-                b_local = S.mesh_local_vertices[base + 1]
-                c_local = S.mesh_local_vertices[base + 2]
-
-                a = R @ a_local + p_r
-                b = R @ b_local + p_r
-                c = R @ c_local + p_r
-
-                ab = b - a
-                ac = c - a
-                n_world = -ab.cross(ac)
-                area2 = n_world.norm()
-
-                if area2 > 1e-10:
-                    n_world = n_world / area2
-                    area = 0.5 * area2
-
-                    center = (a + b + c) / 3.0
-                    cy = center[1]
-
-                    p_total = 0.0
-                    for mat in ti.static(range(S.N_MATERIALS)):
-                        y_surf = S.fluid_surface_y_mat[mat]
-                        if cy < y_surf:
-                            depth = y_surf - cy
-                            rho_k = M.rho0_table[mat]
-                            p_total += rho_k * g * depth
-
-                    if p_total > 0.0:
-                        dF = 10 * p_total * area * n_world
-                        rel = center - p_r
-                        ti.atomic_add(S.rb_force[r], dF)
-                        ti.atomic_add(S.rb_torque[r], rel.cross(dF))
 
 
 @ti.kernel

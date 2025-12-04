@@ -6,8 +6,8 @@
       "size": [0.96, 0.3, 0.96],
       "name": "water_high",
       "rho": 1500,
-      "E": 5e4,
-      "nu": 0.2,
+      "E": 1e5,
+      "nu": 0.49,
       "kind": 0
     },
     {
@@ -16,8 +16,8 @@
       "size": [0.96, 0.5, 0.3],
       "name": "water_low",
       "rho": 500,
-      "E": 5e4,
-      "nu": 0.2,
+      "E": 1e5,
+      "nu": 0.49,
       "kind": 0
     }
   ],
@@ -25,20 +25,34 @@
     {
       "name": "rigid_1",
       "obj_path": "assets/teapot.obj",
-      "position": [0.5, 0.5, 0.5],
+      "position": [0.25, 0.5, 0.5],
       "half_extents": [0.04, 0.04, 0.04],
-      "density": 100.0,
+      "density": 70.0,
       "restitution": 0.2,
-      "friction": 0.3
+      "friction": 0.0
     },
     {
-      "name": "rigid_1",
-      "obj_path": "assets/bunny.obj",
-      "position": [0.8, 0.5, 0.5],
+      "name": "rigid_2",
+      "obj_path": "assets/sphere.obj",
+      "position": [0.5, 0.5, 0.5],
       "half_extents": [0.1, 0.1, 0.1],
-      "density": 800.0,
+      "density": 2500.0,
       "restitution": 0.2,
-      "friction": 0.3
+      "friction": 0.0
+    },
+    {
+      "name": "rigid_3",
+      "obj_path": "assets/bunny.obj",
+      "position": [0.75, 0.5, 0.5],
+      "half_extents": [0.1, 0.1, 0.1],
+      "density": 600.0,
+      "restitution": 0.2,
+      "friction": 0.0
     }
-  ]
+  ],
+  "sim_steps": 600,
+  "substeps": 200,
+  "out_dir": "layering_hard_const",
+  "particles": 500000,
+  "grids": 64
 }

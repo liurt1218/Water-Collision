@@ -2,6 +2,7 @@ import os
 import taichi as ti
 import numpy as np
 import json
+import tqdm
 
 import config as C
 import materials as M
@@ -13,7 +14,6 @@ import state as S
 import fluid
 import step
 import rigid
-# import surface
 import render
 import argparse
 
@@ -22,40 +22,10 @@ import argparse
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--out-dir",
-        type=str,
-        default=C.output_dir_default,
-        help="Output directory for rendered frames / videos",
-    )
-    parser.add_argument(
-        "--sim-steps",
-        type=int,
-        default=C.sim_steps_default,
-        help="Total simulation steps (frames)",
-    )
-    parser.add_argument(
-        "--substeps",
-        type=int,
-        default=C.substeps_default,
-        help="Number of substeps between frames",
-    )
-    parser.add_argument(
         "--scene-config",
         type=str,
         default="scene_config.json",
         help="Scene config JSON path",
-    )
-    parser.add_argument(
-        "--particles",
-        type=int,
-        default=500000,
-        help="Number of particles",
-    )
-    parser.add_argument(
-        "--grid",
-        type=int,
-        default=64,
-        help="Number of grids",
     )
     return parser.parse_args()
 
@@ -87,7 +57,6 @@ def build_materials(scene_cfg):
 # OBJ loading + preprocessing: scale into user bbox
 def load_obj_vertices_and_faces(obj_path: str):
     # Minimal OBJ loader: parse 'v' and 'f' lines.
-    # Faces with 3 or 4 vertices are supported (quads are triangulated).
     verts = []
     faces = []
 
@@ -145,8 +114,7 @@ def compute_local_mesh_in_bbox(
     # Per-axis scale ratios (sx, sy, sz)
     s = np.array(half_extents_ratio, dtype=np.float32)
 
-    # Local vertices:
-    #   center at origin, then per-axis scaling
+    # Local vertices: center at origin, then per-axis scaling
     verts_local = (verts_raw - center_raw) * s
 
     # Physical half extents: original half extents * scale ratios
@@ -180,7 +148,8 @@ def build_scene_from_config(name_to_id, cfg):
             )
         else:
             raise NotImplementedError(f"Unsupported fluid type: {ftype}")
-    fluid.init_vols(blocks)
+    if len(blocks) > 0:
+        fluid.init_vols(blocks)
 
 
 # Rigid scene init: user configs + Taichi rigid fields + mesh cache
@@ -236,8 +205,7 @@ def init_rigid_scene_from_user_configs(cfg):
         )
         phys_half_extents_list.append(phys_half_extents.astype(np.float32))
 
-        # Flatten triangles into vertex list (triangle soup)
-        # faces: (F,3), tri_verts_local: (F*3,3)
+        # Flatten triangles into vertex list (triangle soup), faces: (F,3), tri_verts_local: (F*3,3)
         tri_verts_local = verts_local_full[faces.reshape(-1)]
 
         # Flat-shaded normals per triangle
@@ -315,14 +283,9 @@ def init_rigid_scene_from_user_configs(cfg):
 
 # Rendering: draw full mesh for each rigid
 def draw_rigid_meshes(scene):
-    """
-    Draw all rigid bodies using their full meshes stored in a shared buffer.
-    """
+    # Draw all rigid bodies using their full meshes stored in a shared buffer.
     if S.n_mesh_vertices == 0 or S.n_rigid_bodies == 0:
         return
-
-    # Update world-space vertices/normals in Taichi
-    # update_all_mesh_vertices()
 
     # Get offsets/counts to Python (to use as plain ints)
     offsets = S.rb_mesh_vert_offset.to_numpy()
@@ -343,10 +306,13 @@ def draw_rigid_meshes(scene):
 # Main loop
 def main():
     args = parse_args()
-    output_dir = args.out_dir
-    C.n_particles = args.particles
-    C.n_grid = args.grid
     scene_cfg = load_scene_config(args.scene_config)
+    output_dir = scene_cfg["out_dir"]
+
+    # Initialize configurations
+    C.init_config(scene_cfg["particles"], scene_cfg["grids"])
+    S.init_particle_level_fields()
+    S.init_grid_level_fields()
 
     # 1. Define materials (user can edit rho0/E/nu here)
     name_to_id = build_materials(scene_cfg)
@@ -359,30 +325,17 @@ def main():
 
     # 4. Prepare output directory
     os.makedirs(f"frames/{output_dir}", exist_ok=True)
-    os.makedirs("renderings", exist_ok=True)
-    # obj_out_dir = f"meshes/{output_dir}"
-    # os.makedirs(obj_out_dir, exist_ok=True)
+    os.makedirs(f"renderings", exist_ok=True)
 
-    # 5. Off-screen window
-    window = ti.ui.Window(
-        "MPM Multi-Material + Rigid Mesh Demo",
-        C.window_res,
-        show_window=False,  # off-screen rendering
-    )
-    canvas = window.get_canvas()
-    scene = window.get_scene()
-    camera = ti.ui.Camera()
-
-    # 6. Main loop with fixed frame count
-    for frame in range(args.sim_steps):
+    # 5. Main loop with fixed frame count
+    for frame in tqdm.tqdm(range(scene_cfg["sim_steps"])):
         # Physics substeps
-        for _ in range(args.substeps):
+        for _ in range(scene_cfg["substeps"]):
             step.substep(C.gravity)
 
         render.render_frame(frame, output_dir)
 
-
-    # 7. Encode video with ffmpeg
+    # 6. Encode video with ffmpeg
     os.system(
         f"ffmpeg -framerate 30 -i frames/{output_dir}/frame_%04d.png "
         f"-c:v libx264 -pix_fmt yuv420p renderings/{output_dir}.mp4 -y"

@@ -6,8 +6,8 @@
       "size": [0.96, 0.96, 0.3],
       "name": "water",
       "rho": 1000,
-      "E": 5e4,
-      "nu": 0.2,
+      "E": 1e4,
+      "nu": 0.49,
       "kind": 0
     }
   ],
@@ -15,7 +15,7 @@
     {
       "name": "rigid_1",
       "obj_path": "assets/bunny.obj",
-      "position": [0.5, 0.4, 0.5],
+      "position": [0.7, 0.5, 0.5],
       "half_extents": [0.12, 0.12, 0.12],
       "density": 500.0,
       "restitution": 0.2,
@@ -24,11 +24,16 @@
     {
       "name": "rigid_2",
       "obj_path": "assets/teapot.obj",
-      "position": [0.5, 0.7, 0.5],
+      "position": [0.3, 0.5, 0.5],
       "half_extents": [0.04, 0.04, 0.04],
       "density": 500.0,
       "restitution": 0.1,
       "friction": 0.4
     }
-  ]
+  ],
+  "particles": 500000,
+  "grids": 64,
+  "out_dir": "dambreak_soft_const",
+  "sim_steps": 600,
+  "substeps": 200
 }

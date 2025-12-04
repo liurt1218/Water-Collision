@@ -5,45 +5,66 @@ import config as C
 # Number of materials
 N_MATERIALS = C.N_MATERIALS
 
-# Particle-level fields
-x = ti.Vector.field(C.dim, float, C.n_particles)  # positions
-v = ti.Vector.field(C.dim, float, C.n_particles)  # velocities
-C_apic = ti.Matrix.field(C.dim, C.dim, float, C.n_particles)  # APIC affine C
-F = ti.Matrix.field(3, 3, dtype=float, shape=C.n_particles)  # deformation gradient
-Jp = ti.field(float, C.n_particles)  # plastic J (snow/liquid)
+# Particle-level Fields
 
-# Particle-level boundary info (for rigid coupling, deprecated)
-p_cdf_states = ti.field(dtype=ti.u64, shape=C.n_particles)
-boundary_dist = ti.field(dtype=float, shape=C.n_particles)
-boundary_normal = ti.Vector.field(3, dtype=float, shape=C.n_particles)
-near_boundary = ti.field(dtype=ti.i32, shape=C.n_particles)
-boundary_rigid_id = ti.field(dtype=ti.i32, shape=C.n_particles)
-boundary_side = ti.field(dtype=ti.i8, shape=C.n_particles)
+x = None  # positions
+v = None  # velocities
+C_apic = None  # APIC affine C
+F = None  # deformation gradient
+Jp = None  # plastic J (snow/liquid)
+materials = None  # material_id
+is_used = None  # 0=unused, 1=used
+color = None
+# p_cdf_states = ti.field(dtype=ti.u64, shape=C.n_particles)
+# boundary_dist = ti.field(dtype=float, shape=C.n_particles)
+# boundary_normal = ti.Vector.field(3, dtype=float, shape=C.n_particles)
+# near_boundary = ti.field(dtype=ti.i32, shape=C.n_particles)
+# boundary_rigid_id = ti.field(dtype=ti.i32, shape=C.n_particles)
+# boundary_side = ti.field(dtype=ti.i8, shape=C.n_particles)
+# fluid_surface_y_mat = ti.field(dtype=ti.f32, shape=N_MATERIALS)
 
-materials = ti.field(int, C.n_particles)  # material_id
-is_used = ti.field(int, C.n_particles)  # 0=unused, 1=used
-color = ti.Vector.field(3, float, C.n_particles)
 
-fluid_surface_y_mat = ti.field(dtype=ti.f32, shape=N_MATERIALS)
+def init_particle_level_fields():
+    global x, v, C_apic, F, Jp, materials, is_used, color
+    if C.n_particles > 0:
+        x = ti.Vector.field(C.dim, float, C.n_particles)
+        v = ti.Vector.field(C.dim, float, C.n_particles)
+        C_apic = ti.Matrix.field(C.dim, C.dim, float, C.n_particles)
+        F = ti.Matrix.field(3, 3, dtype=float, shape=C.n_particles)
+        Jp = ti.field(float, C.n_particles)
+        materials = ti.field(int, C.n_particles)
+        is_used = ti.field(int, C.n_particles)
+        color = ti.Vector.field(3, float, C.n_particles)
 
-# Grid fields
-grid_v = ti.Vector.field(C.dim, float, (C.n_grid,) * C.dim)
-grid_m = ti.field(float, (C.n_grid,) * C.dim)
 
-# Grid distances
-grid_side = ti.field(dtype=ti.u64, shape=(C.n_grid, C.n_grid, C.n_grid))
-grid_dist = ti.field(dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
-grid_rigid = ti.field(dtype=ti.i32, shape=(C.n_grid, C.n_grid, C.n_grid))
-grid_normal = ti.Vector.field(3, dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
+# Grid-level Fields
 
-# deprecated
-grid_pressure = ti.Vector.field(3, dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
-grid_pressure_w = ti.field(dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
+grid_v = None
+grid_m = None
+grid_side = None
+grid_dist = None
+grid_rigid = None
+grid_normal = None
+grid_pressure = None
+# grid_pressure_w = ti.field(dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
 
-# Rigid body state (runtime-sized, depends on user input)
-N_RIGID: int = 0
 
-# Positions and orientations
+def init_grid_level_fields():
+    global grid_v, grid_m, grid_side, grid_dist, grid_rigid, grid_normal, grid_pressure
+    grid_v = ti.Vector.field(C.dim, float, (C.n_grid,) * C.dim)
+    grid_m = ti.field(float, (C.n_grid,) * C.dim)
+    grid_side = ti.field(dtype=ti.u64, shape=(C.n_grid, C.n_grid, C.n_grid))
+    grid_dist = ti.field(dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
+    grid_rigid = ti.field(dtype=ti.i32, shape=(C.n_grid, C.n_grid, C.n_grid))
+    grid_normal = ti.Vector.field(3, dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid))
+    grid_pressure = ti.Vector.field(
+        3, dtype=ti.f32, shape=(C.n_grid, C.n_grid, C.n_grid)
+    )
+
+
+# Rigid States
+
+N_RIGID = 0
 rb_pos = None  # center position, Vector(3)
 rb_rot = None  # rotation matrix (world from local), Matrix(3x3)
 
