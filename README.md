@@ -1,4 +1,4 @@
-# Water-Collision Based on Material Point Method
+# Water-Collision Based on Material Point Method (MPM)
 
 ## Features:
 
@@ -6,12 +6,11 @@
 - Surface reconstruction that supports multiple rigid bodies and fluids in one scene.
 - Video rendering pipeline (`.png` frames and `.mp4` videos / `.gif` images currently).
 - Support JSON files for scene config. Pass in via the CLI `--scene-config YOUR_SCENE.json`.
-- Collision acceleration via speeding up closest-point detection via grid based search.
 
 ## How to run:
 
 ```bash
-python main.py --scene-config config/fall_multiobj_soft_const.json
+python main.py --scene-config config/dambreak_hard_const.json
 ```
 
 $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and the rendering result to `renderings/<out_dir>.mp4`.
@@ -19,22 +18,33 @@ $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and t
 ## TODOs:
 
 - Surface reconstruction. (Done)
-- Add deformable objects (e.g. cloth).
 - Add collision logic for walls (not only bottom). (Done)
 - Read configuration files. (Done)
+- Acceleration.
+- Finetuning.
 
 ## Examples:
 
-### Collision (with grid-based speedup)
+### Collision
 
 ![collision](examples/collision.gif)
 
+### Fluid on Rigid
+
+![flood](examples/flood.gif)
+![sticky](examples/sticky.gif)
+
 ### Dambreak
 
-![dambreak](examples/dambreak.gif)
-![dambreak_2](examples/dambreak_2.gif)
+![dambreak_hard_const](examples/dambreak_hard_const.gif)
+
+### Rigid on Fluid
 
 ### Layering
 
 ![layering](examples/layering.gif)
 ![layering_2](examples/layering_2.gif)
+
+### Jelly
+
+### Snow

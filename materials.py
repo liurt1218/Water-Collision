@@ -1,12 +1,15 @@
 # materials.py
 class MaterialConfig:
     # User-facing material configuration.
-    def __init__(self, rho0: float, E: float, nu: float, kind: int, name: str = ""):
+    def __init__(
+        self, rho0: float, E: float, nu: float, kind: int, eta: float, name: str = ""
+    ):
         self.rho0 = rho0
         self.E = E
         self.nu = nu
         self.kind = kind
         self.name = name or f"material_{kind}"
+        self.eta = eta
 
 
 class MaterialRegistry:
@@ -29,11 +32,12 @@ rho0_table = []
 E_table = []
 nu_table = []
 kind_table = []
+eta_table = []
 
 
 def build_kernel_tables():
     # Build Python lists for kernel use, based on the global_registry.
-    global rho0_table, E_table, nu_table, kind_table
+    global rho0_table, E_table, nu_table, kind_table, eta_table
 
     if not global_registry.configs:
         raise RuntimeError(
@@ -45,10 +49,11 @@ def build_kernel_tables():
     E_table = [cfg.E for cfg in global_registry.configs]
     nu_table = [cfg.nu for cfg in global_registry.configs]
     kind_table = [cfg.kind for cfg in global_registry.configs]
+    eta_table = [cfg.eta for cfg in global_registry.configs]
 
     print("[materials] Built kernel tables:")
     for idx, cfg in enumerate(global_registry.configs):
         print(
             f"  id={idx}, name={cfg.name}, kind={cfg.kind}, "
-            f"rho0={cfg.rho0}, E={cfg.E}, nu={cfg.nu}"
+            f"rho0={cfg.rho0}, E={cfg.E}, nu={cfg.nu}, eta={cfg.eta}"
         )

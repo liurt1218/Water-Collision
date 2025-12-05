@@ -130,6 +130,7 @@ def substep_mpm(gravity: float, contact_band: float):
     E_list = ti.static(M.E_table)
     nu_list = ti.static(M.nu_table)
     kind_list = ti.static(M.kind_table)
+    eta_list = ti.static(M.eta_table)
     n_materials = ti.static(len(M.rho0_table))
 
     # 1. clear grid
@@ -164,12 +165,14 @@ def substep_mpm(gravity: float, contact_band: float):
             E = 0.0
             nu = 0.0
             kind = 0
+            eta = 0.0
             for mid in ti.static(range(n_materials)):
                 if mat_id == mid:
                     rho0 = rho0_list[mid]
                     E = E_list[mid]
                     nu = nu_list[mid]
                     kind = kind_list[mid]
+                    eta = eta_list[mid]
 
             mu = E / (2.0 * (1.0 + nu))
             la = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
@@ -210,7 +213,13 @@ def substep_mpm(gravity: float, contact_band: float):
                 p
             ].transpose() + ti.Matrix.identity(float, 3) * la * J * (J - 1.0)
 
-            stress = (-C.dt * C.p_vol * 4.0 * C.inv_dx * C.inv_dx) * P
+            D = 0.5 * (Cp + Cp.transpose())
+            sigma_visc = 2.0 * eta * D
+
+            stress_elastic = (-C.dt * C.p_vol * 4.0 * C.inv_dx * C.inv_dx) * P
+            stress_visc = (-C.dt * C.p_vol * 4.0 * C.inv_dx * C.inv_dx) * sigma_visc
+
+            stress = stress_elastic + stress_visc
             affine = stress + p_mass * Cp
 
             for i, j, k in ti.static(ti.ndrange(3, 3, 3)):

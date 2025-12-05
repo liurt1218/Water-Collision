@@ -43,6 +43,7 @@ def build_materials(scene_cfg):
             nu=fb["nu"],
             kind=fb["kind"],
             name=fb["name"],
+            eta=fb["eta"],
         )
         mat_id = M.global_registry.register(config)
         name_to_id[fb["name"]] = mat_id
@@ -144,6 +145,9 @@ def build_scene_from_config(name_to_id, cfg):
                     min_corner,
                     size,
                     mat_id,
+                    fb["kind"],
+                    fb.get("color", ti.Vector([0.0, 0.0, 0.0])),
+                    int("color" in fb.keys()),
                 )
             )
         else:
@@ -334,7 +338,11 @@ def main():
             step.substep(C.gravity)
 
         try:
-            render.render_frame(frame, output_dir)
+            render.render_frame(
+                frame,
+                output_dir,
+                particle_radius=scene_cfg.get("particle_radius", 0.01),
+            )
         except Exception as e:
             print(f"Error rendering frame {frame} with error {e}")
 

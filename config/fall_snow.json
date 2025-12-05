@@ -1,0 +1,67 @@
+{
+  "fluids": [
+    {
+      "type": "cube",
+      "min_corner": [0.02, 0.2, 0.02],
+      "size": [0.8, 0.4, 0.8],
+      "name": "snow",
+      "rho": 900,
+      "E": 1e5,
+      "nu": 0.2,
+      "kind": 2,
+      "eta": 0.0
+    }
+  ],
+  "rigids": [
+    {
+      "name": "rigid_1",
+      "obj_path": "assets/sphere.obj",
+      "position": [0.25, 0.8, 0.25],
+      "half_extents": [0.1, 0.1, 0.1],
+      "density": 500.0,
+      "restitution": 0.5,
+      "friction": 0.5
+    },
+    {
+      "name": "rigid_2",
+      "obj_path": "assets/teapot.obj",
+      "position": [0.75, 0.8, 0.25],
+      "half_extents": [0.04, 0.04, 0.04],
+      "density": 600.0,
+      "restitution": 0.5,
+      "friction": 0.5
+    },
+    {
+      "name": "rigid_3",
+      "obj_path": "assets/bunny.obj",
+      "position": [0.25, 0.8, 0.75],
+      "half_extents": [0.1, 0.1, 0.1],
+      "density": 1000.0,
+      "restitution": 0.5,
+      "friction": 0.5
+    },
+    {
+      "name": "rigid_4",
+      "obj_path": "assets/cow.obj",
+      "position": [0.75, 0.8, 0.75],
+      "half_extents": [0.008, 0.008, 0.008],
+      "density": 1200.0,
+      "restitution": 0.5,
+      "friction": 0.5
+    },
+    {
+      "name": "rigid_5",
+      "obj_path": "assets/bean.obj",
+      "position": [0.5, 0.8, 0.5],
+      "half_extents": [0.12, 0.12, 0.12],
+      "density": 2500.0,
+      "restitution": 0.5,
+      "friction": 0.5
+    }
+  ],
+  "particles": 500000,
+  "grids": 64,
+  "sim_steps": 600,
+  "substeps": 200,
+  "out_dir": "fall_snow"
+}

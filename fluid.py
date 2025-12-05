@@ -6,11 +6,24 @@ import state as S
 
 class CubeVolume:
     # Simple axis-aligned cube volume used to spawn particles.
-    def __init__(self, minimum: ti.Vector, size: ti.Vector, material_id: int):
+    def __init__(
+        self,
+        minimum: ti.Vector,
+        size: ti.Vector,
+        material_id: int,
+        kind: int,
+        color: ti.Vector,
+        color_valid: int,
+    ):
         self.minimum = minimum
         self.size = size
         self.volume = self.size.x * self.size.y * self.size.z
         self.material_id = material_id
+        self.kind = kind
+        self.color_r = color[0]
+        self.color_g = color[1]
+        self.color_b = color[2]
+        self.color_valid = color_valid
 
 
 @ti.kernel
@@ -36,6 +49,11 @@ def init_cube_vol(
     y_size: float,
     z_size: float,
     material_id: int,
+    kind: int,
+    color_r: float,
+    color_g: float,
+    color_b: float,
+    color_valid: int,
 ):
     # Initialize particles with random positions inside a cube volume.
     for i in range(first_par, last_par):
@@ -54,11 +72,13 @@ def init_cube_vol(
         S.v[i] = ti.Vector.zero(float, C.dim)
         S.materials[i] = material_id
         S.is_used[i] = 1
-        if material_id == 0:  # WATER
+        if color_valid == 1:
+            S.color[i] = ti.Vector([color_r, color_g, color_b])
+        elif kind == C.WATER:  # WATER
             S.color[i] = ti.Vector([0.2, 0.6, 1.0])
-        elif material_id == 1:  # JELLY (soft or hard)
-            S.color[i] = ti.Vector([1.0, 0.7, 0.75])
-        elif material_id == 2:  # SNOW
+        elif kind == C.JELLY:  # JELLY (soft or hard)
+            S.color[i] = ti.Vector([1.0, 1.0, 0.5])
+        elif kind == C.SNOW:  # SNOW
             S.color[i] = ti.Vector([0.9, 0.9, 0.9])
         else:
             S.color[i] = ti.Vector([0.6, 0.6, 0.6])
@@ -90,6 +110,11 @@ def init_vols(vols):
                 vol.size.y,
                 vol.size.z,
                 vol.material_id,
+                vol.kind,
+                vol.color_r,
+                vol.color_g,
+                vol.color_b,
+                vol.color_valid,
             )
             next_p += par_count
         else:
