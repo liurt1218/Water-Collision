@@ -20,13 +20,13 @@
       "half_extents": [0.025, 0.025, 0.025],
       "density": 2000.0,
       "restitution": 0.2,
-      "friction": 0.0
+      "friction": 0.0,
+      "particle_radius": 0.03
     }
   ],
   "particles": 50000,
   "grids": 64,
   "out_dir": "sticky",
   "sim_steps": 200,
-  "substeps": 200,
-  "particle_radius": 0.03
+  "substeps": 200
 }

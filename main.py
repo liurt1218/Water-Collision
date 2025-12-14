@@ -327,6 +327,11 @@ def main():
     # 3. Initialize rigid bodies from user configs (OBJ + bbox + parameters)
     init_rigid_scene_from_user_configs(scene_cfg)
 
+    particle_radii = []
+    user_rigids_cfg = scene_cfg.get("rigids", [])
+    for r in user_rigids_cfg:
+        particle_radii.append(float(r.get("particle_radius", 0.01)))
+
     # 4. Prepare output directory
     os.makedirs(f"frames/{output_dir}", exist_ok=True)
     os.makedirs(f"renderings", exist_ok=True)
@@ -341,7 +346,7 @@ def main():
             render.render_frame(
                 frame,
                 output_dir,
-                particle_radius=scene_cfg.get("particle_radius", 0.01),
+                particle_radii=particle_radii,
             )
         except Exception as e:
             print(f"Error rendering frame {frame} with error {e}")

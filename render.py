@@ -56,7 +56,7 @@ def get_material_for_rigid(i: int) -> bpy.types.Material:
     return mat
 
 
-def render_rigid_body(particle_radius):
+def render_rigid_body(particle_radii):
     if S.n_mesh_vertices == 0 or S.n_rigid_bodies == 0:
         return
 
@@ -69,7 +69,7 @@ def render_rigid_body(particle_radius):
         end = start + counts[i]
         vertices = all_vertices[start:end]
 
-        mesh_with_data = rigid_surface_reconstruction(vertices, particle_radius)
+        mesh_with_data = rigid_surface_reconstruction(vertices, particle_radii[i])
 
         mesh = bpy.data.meshes.new(f"RigidBodyMesh_{i}")
         mesh.from_pydata(
@@ -152,7 +152,7 @@ def render_fluid():
         obj.data.materials.append(surf_material)
 
 
-def render_frame(frame, output_dir, particle_radius):
+def render_frame(frame, output_dir, particle_radii):
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
     # Add a camera
@@ -173,7 +173,7 @@ def render_frame(frame, output_dir, particle_radius):
     light2.data.energy = 2.0
 
     if S.N_RIGID > 0:
-        render_rigid_body(particle_radius)
+        render_rigid_body(particle_radii)
     if C.n_particles > 0:
         render_fluid()
 

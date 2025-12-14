@@ -28,6 +28,7 @@ $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and t
 ### Collision
 
 ![collision](examples/collision.gif)
+![collision_2](examples/collision_2.gif)
 
 ### Fluid on Rigid
 
