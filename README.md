@@ -40,11 +40,17 @@ $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and t
 
 ### Rigid on Fluid
 
+![fall_multiobj_static](examples/fall_multiobj_static.gif)
+![fall_multiobj_hard_const](examples/fall_multiobj_hard_const.gif)
+
 ### Layering
 
-![layering](examples/layering.gif)
-![layering_2](examples/layering_2.gif)
+![layering_hard_const](examples/layering_hard_const.gif)
 
 ### Jelly
 
+![fall_jelly](examples/fall_jelly.gif)
+
 ### Snow
+
+![fall_snow_hard](examples/fall_snow_hard.gif)
