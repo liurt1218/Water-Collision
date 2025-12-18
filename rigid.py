@@ -2,6 +2,7 @@
 import taichi as ti
 import config as C
 import state as S
+from rigid_cuda import rigid_cuda_ext
 
 
 GRID_RES = 64
@@ -157,7 +158,9 @@ def point_in_triangle(p, a, b, c):
 
 
 @ti.func
-def query_mesh_contact_strict_cdf(x_world, rigid_id: int, max_distance: float):
+def query_mesh_contact_strict_cdf(
+    x_world, rigid_id: int, max_distance: float, mesh_vertices: ti.types.ndarray()
+):
     """
     Query the signed distance from a point to a rigid mesh surface.
 
@@ -188,9 +191,15 @@ def query_mesh_contact_strict_cdf(x_world, rigid_id: int, max_distance: float):
         i1 = i0 + 1
         i2 = i0 + 2
 
-        v0 = S.mesh_vertices[i0]
-        v1 = S.mesh_vertices[i1]
-        v2 = S.mesh_vertices[i2]
+        v0 = ti.Vector(
+            [mesh_vertices[i0, 0], mesh_vertices[i0, 1], mesh_vertices[i0, 2]]
+        )
+        v1 = ti.Vector(
+            [mesh_vertices[i1, 0], mesh_vertices[i1, 1], mesh_vertices[i1, 2]]
+        )
+        v2 = ti.Vector(
+            [mesh_vertices[i2, 0], mesh_vertices[i2, 1], mesh_vertices[i2, 2]]
+        )
 
         # Triangle normal
         e0 = v1 - v0
@@ -408,7 +417,7 @@ def update_all_mesh_vertices():
 
 
 @ti.kernel
-def handle_rigid_collisions():
+def handle_rigid_collisions(mesh_vertices: ti.types.ndarray()):
     thresh = 0.01
     dom_min = ti.Vector([C.domain_min[0], C.domain_min[1], C.domain_min[2]])
     dom_max = ti.Vector([C.domain_max[0], C.domain_max[1], C.domain_max[2]])
@@ -433,7 +442,13 @@ def handle_rigid_collisions():
 
             for k2 in range(count2):
                 vid2 = start2 + k2
-                x2 = S.mesh_vertices[vid2]
+                x2 = ti.Vector(
+                    [
+                        mesh_vertices[vid2, 0],
+                        mesh_vertices[vid2, 1],
+                        mesh_vertices[vid2, 2],
+                    ]
+                )
                 rel2 = (x2 - dom_min) / dom_extent
                 gx = int(rel2[0] * GRID_RES)
                 gy = int(rel2[1] * GRID_RES)
@@ -464,7 +479,13 @@ def handle_rigid_collisions():
 
             for k1 in range(count1):
                 vid1 = start1 + k1
-                x1 = S.mesh_vertices[vid1]
+                x1 = ti.Vector(
+                    [
+                        mesh_vertices[vid1, 0],
+                        mesh_vertices[vid1, 1],
+                        mesh_vertices[vid1, 2],
+                    ]
+                )
                 rel1 = (x1 - dom_min) / dom_extent
                 gx0 = int(rel1[0] * GRID_RES)
                 gy0 = int(rel1[1] * GRID_RES)
@@ -494,7 +515,13 @@ def handle_rigid_collisions():
                                         cnt = grid_count[gx, gy, gz]
                                         for ci in range(cnt):
                                             vid2 = grid_indices[gx, gy, gz, ci]
-                                            x2 = S.mesh_vertices[vid2]
+                                            x2 = ti.Vector(
+                                                [
+                                                    mesh_vertices[vid2, 0],
+                                                    mesh_vertices[vid2, 1],
+                                                    mesh_vertices[vid2, 2],
+                                                ]
+                                            )
                                             d = (x2 - x1).norm()
                                             if d < min_dist:
                                                 min_dist = d
@@ -599,7 +626,7 @@ def handle_rigid_collisions():
 
 
 @ti.kernel
-def handle_rigid_domain_walls():
+def handle_rigid_domain_walls(mesh_vertices: ti.types.ndarray()):
     min_x = C.domain_min[0]
     min_y = C.domain_min[1]
     min_z = C.domain_min[2]
@@ -629,7 +656,9 @@ def handle_rigid_domain_walls():
         found = False
         for k in range(count):
             vid = start + k
-            p = S.mesh_vertices[vid]
+            p = ti.Vector(
+                [mesh_vertices[vid, 0], mesh_vertices[vid, 1], mesh_vertices[vid, 2]]
+            )
             if p.y < min_coord:
                 min_coord = p.y
                 cp = p
@@ -681,7 +710,9 @@ def handle_rigid_domain_walls():
         found = False
         for k in range(count):
             vid = start + k
-            p = S.mesh_vertices[vid]
+            p = ti.Vector(
+                [mesh_vertices[vid, 0], mesh_vertices[vid, 1], mesh_vertices[vid, 2]]
+            )
             if p.y > max_coord:
                 max_coord = p.y
                 cp = p
@@ -733,7 +764,9 @@ def handle_rigid_domain_walls():
         found = False
         for k in range(count):
             vid = start + k
-            p = S.mesh_vertices[vid]
+            p = ti.Vector(
+                [mesh_vertices[vid, 0], mesh_vertices[vid, 1], mesh_vertices[vid, 2]]
+            )
             if p.x < min_coord:
                 min_coord = p.x
                 cp = p
@@ -785,7 +818,9 @@ def handle_rigid_domain_walls():
         found = False
         for k in range(count):
             vid = start + k
-            p = S.mesh_vertices[vid]
+            p = ti.Vector(
+                [mesh_vertices[vid, 0], mesh_vertices[vid, 1], mesh_vertices[vid, 2]]
+            )
             if p.x > max_coord:
                 max_coord = p.x
                 cp = p
@@ -837,7 +872,9 @@ def handle_rigid_domain_walls():
         found = False
         for k in range(count):
             vid = start + k
-            p = S.mesh_vertices[vid]
+            p = ti.Vector(
+                [mesh_vertices[vid, 0], mesh_vertices[vid, 1], mesh_vertices[vid, 2]]
+            )
             if p.z < min_coord:
                 min_coord = p.z
                 cp = p
@@ -889,7 +926,9 @@ def handle_rigid_domain_walls():
         found = False
         for k in range(count):
             vid = start + k
-            p = S.mesh_vertices[vid]
+            p = ti.Vector(
+                [mesh_vertices[vid, 0], mesh_vertices[vid, 1], mesh_vertices[vid, 2]]
+            )
             if p.z > max_coord:
                 max_coord = p.z
                 cp = p
@@ -936,3 +975,78 @@ def handle_rigid_domain_walls():
 
         S.rb_lin_vel[b] = v_b
         S.rb_ang_vel[b] = w
+
+
+def update_all_mesh_vertices_cuda():
+    rigid_cuda_ext.update_all_mesh_vertices(
+        S.mesh_vertices_t,
+        S.mesh_normals_t,
+        S.mesh_local_vertices_t,
+        S.mesh_local_normals_t,
+        S.rb_pos_t,
+        S.rb_rot_t,
+        S.vertex_owner_t,
+    )
+
+
+def handle_rigid_domain_walls_cuda():
+    rigid_cuda_ext.handle_domain_walls(
+        S.mesh_vertices_t,
+        S.rb_pos_t,
+        S.rb_lin_vel_t,
+        S.rb_ang_vel_t,
+        S.rb_inv_inertia_world_t,
+        S.rb_inv_mass_t,
+        S.rb_restitution_t,
+        S.rb_friction_t,
+        S.rb_active_t,
+        S.rb_mesh_vert_offset_t,
+        S.rb_mesh_vert_count_t,
+        S.domain_min_t,
+        S.domain_max_t,
+        0.01,
+    )
+
+
+def handle_rigid_collisions_cuda():
+    S.grid_count_t.zero_()
+    S.dpos_t.zero_()
+    S.dlv_t.zero_()
+    S.dav_t.zero_()
+
+    rigid_cuda_ext.build_vertex_grid(
+        S.mesh_vertices_t,
+        S.vertex_owner_t,
+        S.rb_active_t,
+        S.grid_count_t,
+        S.grid_indices_t,
+        S.domain_min_t,
+        S.domain_max_t,
+    )
+
+    rigid_cuda_ext.rigid_rigid_collisions(
+        S.mesh_vertices_t,
+        S.rb_pos_t,
+        S.rb_lin_vel_t,
+        S.rb_ang_vel_t,
+        S.rb_inv_inertia_world_t,
+        S.rb_inv_mass_t,
+        S.rb_restitution_t,
+        S.rb_friction_t,
+        S.rb_half_extents_t,
+        S.rb_active_t,
+        S.rb_mesh_vert_offset_t,
+        S.rb_mesh_vert_count_t,
+        S.grid_count_t,
+        S.grid_indices_t,
+        S.domain_min_t,
+        S.domain_max_t,
+        S.dpos_t,
+        S.dlv_t,
+        S.dav_t,
+        0.01,  # thresh
+    )
+
+    rigid_cuda_ext.apply_rigid_deltas(
+        S.rb_pos_t, S.rb_lin_vel_t, S.rb_ang_vel_t, S.dpos_t, S.dlv_t, S.dav_t
+    )

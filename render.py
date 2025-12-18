@@ -62,7 +62,7 @@ def render_rigid_body(particle_radii):
 
     offsets = S.rb_mesh_vert_offset.to_numpy()
     counts = S.rb_mesh_vert_count.to_numpy()
-    all_vertices = S.mesh_vertices.to_numpy()
+    all_vertices = S.mesh_vertices_t.detach().cpu().numpy()
 
     for i in range(S.n_rigid_bodies):
         start = offsets[i]

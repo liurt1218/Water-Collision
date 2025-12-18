@@ -23,7 +23,9 @@ def clear_cdf_grid():
 
 
 @ti.kernel
-def rasterize_rigid_boundary_cdf(contact_band: float):
+def rasterize_rigid_boundary_cdf(
+    contact_band: float, mesh_vertices: ti.types.ndarray()
+):
     """
     For each grid node, query all rigid meshes and record the nearest one
     using signed distance.
@@ -47,7 +49,7 @@ def rasterize_rigid_boundary_cdf(contact_band: float):
         for r in range(S.N_RIGID):
             if S.rb_active[r] == 1:
                 hit, n, dist = rigid.query_mesh_contact_strict_cdf(
-                    x_world, r, contact_band
+                    x_world, r, contact_band, mesh_vertices
                 )
 
                 if hit and ti.abs(dist) < best_abs:
@@ -336,7 +338,7 @@ def substep(gravity: float):
 
     if S.N_RIGID > 0:
         clear_cdf_grid()
-        rasterize_rigid_boundary_cdf(contact_band)
+        rasterize_rigid_boundary_cdf(contact_band, S.mesh_vertices_t)
 
     if C.n_particles > 0:
         # MPM step with band-aware rigid-fluid coupling
@@ -345,7 +347,9 @@ def substep(gravity: float):
     if S.N_RIGID > 0:
         # Rigid-body integration and collisions
         rigid.integrate_rigid_bodies(gravity)
-        rigid.update_all_mesh_vertices()
-        rigid.handle_rigid_domain_walls()
-        rigid.handle_rigid_collisions()
-        rigid.update_all_mesh_vertices()
+        S.sync_rigid_pose_torch_from_taichi()
+        rigid.update_all_mesh_vertices_cuda()
+        rigid.handle_rigid_domain_walls_cuda()
+        rigid.handle_rigid_collisions_cuda()
+        rigid.update_all_mesh_vertices_cuda()
+        S.sync_rigid_state_torch_to_taichi()

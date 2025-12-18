@@ -1,9 +1,12 @@
 # state.py
 import taichi as ti
 import config as C
+import torch
 
 # Number of materials
 N_MATERIALS = C.N_MATERIALS
+GRID_RES = 64
+MAX_CELL_VERTS = 32
 
 # Particle-level Fields
 
@@ -182,3 +185,167 @@ def init_rigid_mesh_fields(total_verts: int, n_rigid: int):
     # Per-rigid vertex ranges
     rb_mesh_vert_offset = ti.field(dtype=int, shape=n_rigid_bodies)
     rb_mesh_vert_count = ti.field(dtype=int, shape=n_rigid_bodies)
+
+
+# PyTorch tensors
+
+mesh_local_vertices_t = None
+mesh_local_normals_t = None
+mesh_vertices_t = None
+mesh_normals_t = None
+
+rb_pos_t = None
+rb_rot_t = None
+
+rb_mesh_vert_offset_t = None
+rb_mesh_vert_count_t = None
+
+vertex_owner_t = None
+
+rb_lin_vel_t = None
+rb_ang_vel_t = None
+
+rb_inv_mass_t = None
+rb_restitution_t = None
+rb_friction_t = None
+rb_active_t = None
+
+rb_inv_inertia_world_t = None
+
+domain_min_t = torch.tensor(
+    C.domain_min, device="cuda", dtype=torch.float32
+).contiguous()
+domain_max_t = torch.tensor(
+    C.domain_max, device="cuda", dtype=torch.float32
+).contiguous()
+
+rb_half_extents_t = None
+grid_count_t = None
+grid_indices_t = None
+dpos_t = None
+dlv_t = None
+dav_t = None
+
+
+def init_rigid_torch_storage(device="cuda"):
+    """Create torch tensors by copying from Taichi rigid fields (one-time init)."""
+    global mesh_local_vertices_t, mesh_local_normals_t, mesh_vertices_t, mesh_normals_t
+    global rb_pos_t, rb_rot_t
+    global rb_mesh_vert_offset_t, rb_mesh_vert_count_t
+    global vertex_owner_t
+
+    if n_mesh_vertices == 0 or n_rigid_bodies == 0:
+        return
+
+    # Taichi to_torch gives shape (V, 3) for Vector.field
+    mesh_local_vertices_t = mesh_local_vertices.to_torch(device=device).contiguous()
+    mesh_local_normals_t = mesh_local_normals.to_torch(device=device).contiguous()
+
+    # outputs (CUDA will write)
+    mesh_vertices_t = torch.empty(
+        (n_mesh_vertices, 3), device=device, dtype=torch.float32
+    )
+    mesh_normals_t = torch.empty(
+        (n_mesh_vertices, 3), device=device, dtype=torch.float32
+    )
+
+    # --- Rigid pose (copy from Taichi) ---
+    B = n_rigid_bodies
+
+    # --- Rigid state buffers (ALLOC ONCE) ---
+    global rb_lin_vel_t, rb_ang_vel_t
+    global rb_inv_mass_t, rb_restitution_t, rb_friction_t, rb_active_t
+    global rb_inv_inertia_world_t
+    global rb_half_extents_t, grid_count_t, grid_indices_t, dpos_t, dlv_t, dav_t
+
+    rb_pos_t = torch.empty((B, 3), device=device, dtype=torch.float32)
+    rb_rot_t = torch.empty((B, 3, 3), device=device, dtype=torch.float32)
+
+    rb_lin_vel_t = torch.empty((B, 3), device=device, dtype=torch.float32)
+    rb_ang_vel_t = torch.empty((B, 3), device=device, dtype=torch.float32)
+
+    rb_inv_mass_t = torch.empty((B,), device=device, dtype=torch.float32)
+    rb_restitution_t = torch.empty((B,), device=device, dtype=torch.float32)
+    rb_friction_t = torch.empty((B,), device=device, dtype=torch.float32)
+    rb_active_t = torch.empty((B,), device=device, dtype=torch.int32)
+
+    rb_inv_inertia_world_t = torch.empty((B, 3, 3), device=device, dtype=torch.float32)
+
+    # initial copy (IN-PLACE)
+    rb_pos_t.copy_(rb_pos.to_torch(device=device))
+    rb_rot_t.copy_(rb_rot.to_torch(device=device))
+
+    rb_lin_vel_t.copy_(rb_lin_vel.to_torch(device=device))
+    rb_ang_vel_t.copy_(rb_ang_vel.to_torch(device=device))
+
+    rb_inv_mass_t.copy_(rb_inv_mass.to_torch(device=device))
+    rb_restitution_t.copy_(rb_restitution.to_torch(device=device))
+    rb_friction_t.copy_(rb_friction.to_torch(device=device))
+    rb_active_t.copy_(rb_active.to_torch(device=device).to(torch.int32))
+
+    rb_inv_inertia_world_t.copy_(rb_inv_inertia_world.to_torch(device=device))
+
+    rb_half_extents_t = torch.empty((B, 3), device=device, dtype=torch.float32)
+    rb_half_extents_t.copy_(rb_half_extents.to_torch(device=device))
+
+    # --- grid buffers ---
+    CELLS = GRID_RES * GRID_RES * GRID_RES
+    grid_count_t = torch.zeros((B, CELLS), device=device, dtype=torch.int32)
+    grid_indices_t = torch.empty(
+        (B, CELLS, MAX_CELL_VERTS), device=device, dtype=torch.int32
+    )
+
+    # --- delta buffers (per-frame accum) ---
+    dpos_t = torch.zeros((B, 3), device=device, dtype=torch.float32)
+    dlv_t = torch.zeros((B, 3), device=device, dtype=torch.float32)
+    dav_t = torch.zeros((B, 3), device=device, dtype=torch.float32)
+
+    # offsets/counts are tiny; keep on CUDA for convenience
+    rb_mesh_vert_offset_t = (
+        rb_mesh_vert_offset.to_torch(device=device).to(torch.int32).contiguous()
+    )
+    rb_mesh_vert_count_t = (
+        rb_mesh_vert_count.to_torch(device=device).to(torch.int32).contiguous()
+    )
+
+    # --- owner (one-time build) ---
+    owner_cpu = torch.empty((n_mesh_vertices,), device="cpu", dtype=torch.int32)
+    off = rb_mesh_vert_offset.to_torch(device="cpu").to(torch.int32)
+    cnt = rb_mesh_vert_count.to_torch(device="cpu").to(torch.int32)
+    for b in range(n_rigid_bodies):
+        s = int(off[b].item())
+        c = int(cnt[b].item())
+        owner_cpu[s : s + c] = b
+    vertex_owner_t = owner_cpu.to(device=device, non_blocking=True).contiguous()
+
+
+def sync_rigid_pose_torch_from_taichi(device="cuda"):
+    """Refresh torch copies IN-PLACE (no re-allocation)."""
+    rb_pos_t.copy_(rb_pos.to_torch(device=device))
+    rb_rot_t.copy_(rb_rot.to_torch(device=device))
+
+    rb_lin_vel_t.copy_(rb_lin_vel.to_torch(device=device))
+    rb_ang_vel_t.copy_(rb_ang_vel.to_torch(device=device))
+
+    rb_inv_mass_t.copy_(rb_inv_mass.to_torch(device=device))
+    rb_restitution_t.copy_(rb_restitution.to_torch(device=device))
+    rb_friction_t.copy_(rb_friction.to_torch(device=device))
+    rb_active_t.copy_(rb_active.to_torch(device=device).to(torch.int32))
+
+    rb_inv_inertia_world_t.copy_(rb_inv_inertia_world.to_torch(device=device))
+
+
+def sync_rigid_state_torch_to_taichi():
+    rb_pos.from_torch(rb_pos_t)
+    rb_rot.from_torch(rb_rot_t)
+
+    rb_lin_vel.from_torch(rb_lin_vel_t)
+    rb_ang_vel.from_torch(rb_ang_vel_t)
+
+    rb_inv_inertia_world.from_torch(rb_inv_inertia_world_t)
+
+
+def sync_mesh_torch_to_taichi():
+    """After CUDA updates mesh_vertices_t/mesh_normals_t, copy back to Taichi fields for existing Taichi kernels."""
+    mesh_vertices.from_torch(mesh_vertices_t)
+    mesh_normals.from_torch(mesh_normals_t)

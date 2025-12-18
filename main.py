@@ -279,6 +279,8 @@ def init_rigid_scene_from_user_configs(cfg):
             restitution,
             friction,
         )
+    # copy to torch.tensor
+    S.init_rigid_torch_storage()
 
     print(
         f"[INFO] Initialized {n_rigid} rigid bodies, total mesh vertices = {total_verts}."
