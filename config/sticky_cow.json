@@ -1,0 +1,33 @@
+{
+  "fluids": [
+    {
+      "type": "mesh",
+      "obj_path": "assets/cow.obj",
+      "min_corner": [0.3, 0.5, 0.3],
+      "scale": [0.025, 0.025, 0.025],
+      "name": "water",
+      "rho": 1000,
+      "E": 5e3,
+      "nu": 0.499,
+      "kind": 0,
+      "eta": 300
+    }
+  ],
+  "rigids": [
+    {
+      "name": "rigid_1",
+      "obj_path": "assets/cow.obj",
+      "position": [0.5, 0.3, 0.5],
+      "half_extents": [0.025, 0.025, 0.025],
+      "density": 2000.0,
+      "restitution": 0.2,
+      "friction": 0.0,
+      "particle_radius": 0.03
+    }
+  ],
+  "particles": 50000,
+  "grids": 64,
+  "out_dir": "sticky_cow",
+  "sim_steps": 200,
+  "substeps": 200
+}
