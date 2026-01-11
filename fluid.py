@@ -75,7 +75,7 @@ def init_cube_vol(
         if color_valid == 1:
             S.color[i] = ti.Vector([color_r, color_g, color_b])
         elif kind == C.WATER:  # WATER
-            S.color[i] = ti.Vector([0.2, 0.6, 1.0])
+            S.color[i] = ti.Vector([1.0, 1.0, 1.0])
         elif kind == C.JELLY:  # JELLY (soft or hard)
             S.color[i] = ti.Vector([1.0, 1.0, 0.5])
         elif kind == C.SNOW:  # SNOW

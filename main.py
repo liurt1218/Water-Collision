@@ -188,8 +188,12 @@ def init_rigid_scene_from_user_configs(cfg):
     vert_offsets = []
     vert_counts = []
     phys_half_extents_list = []
+    faces_all = []
+    faces_offsets = []
+    faces_counts = []
 
     current_offset = 0
+    face_offset = 0
 
     for cfg_r in user_rigids:
         obj_path = cfg_r["obj_path"]
@@ -232,24 +236,33 @@ def init_rigid_scene_from_user_configs(cfg):
 
         vert_offsets.append(current_offset)
         vert_counts.append(n_tri_verts)
+        faces_offsets.append(face_offset)
+        faces_counts.append(F)
 
         tri_vertices_all.append(tri_verts_local)
         tri_normals_all.append(tri_normals_local)
+        faces_all.append(faces)
 
         current_offset += n_tri_verts
+        face_offset += F
 
     # Concatenate all rigid meshes into one big buffer
     tri_vertices_all = np.concatenate(tri_vertices_all, axis=0).astype(np.float32)
     tri_normals_all = np.concatenate(tri_normals_all, axis=0).astype(np.float32)
+    faces_all = np.concatenate(faces_all, axis=0).astype(np.int32)
 
     total_verts = tri_vertices_all.shape[0]
+    total_faces = tri_normals_all.shape[0] // 3
 
     # 3) Allocate Taichi mesh fields and upload data
-    S.init_rigid_mesh_fields(total_verts, n_rigid)
+    S.init_rigid_mesh_fields(total_verts, n_rigid, total_faces)
     S.mesh_local_vertices.from_numpy(tri_vertices_all)
     S.mesh_local_normals.from_numpy(tri_normals_all)
+    S.mesh_local_faces.from_numpy(faces_all)
     S.rb_mesh_vert_offset.from_numpy(np.array(vert_offsets, dtype=np.int32))
     S.rb_mesh_vert_count.from_numpy(np.array(vert_counts, dtype=np.int32))
+    S.rb_mesh_face_offset.from_numpy(np.array(faces_offsets, dtype=np.int32))
+    S.rb_mesh_face_count.from_numpy(np.array(faces_counts, dtype=np.int32))
 
     # 4) Initialize rigid-body physics for each config (bbox collider + inertia)
     for idx, cfg_r in enumerate(user_rigids):
@@ -285,28 +298,6 @@ def init_rigid_scene_from_user_configs(cfg):
     print(
         f"[INFO] Initialized {n_rigid} rigid bodies, total mesh vertices = {total_verts}."
     )
-
-
-# Rendering: draw full mesh for each rigid
-def draw_rigid_meshes(scene):
-    # Draw all rigid bodies using their full meshes stored in a shared buffer.
-    if S.n_mesh_vertices == 0 or S.n_rigid_bodies == 0:
-        return
-
-    # Get offsets/counts to Python (to use as plain ints)
-    offsets = S.rb_mesh_vert_offset.to_numpy()
-    counts = S.rb_mesh_vert_count.to_numpy()
-
-    for r in range(S.n_rigid_bodies):
-        # You can also check rb_active here if needed
-        scene.mesh(
-            S.mesh_vertices,
-            normals=S.mesh_normals,
-            vertex_offset=int(offsets[r]),
-            vertex_count=int(counts[r]),
-            color=(1.0, 0.5, 0.2),
-            two_sided=True,
-        )
 
 
 # Main loop

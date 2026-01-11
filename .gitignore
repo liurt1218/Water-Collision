@@ -1,5 +1,8 @@
 frames/
 renderings/
+logs/
 __pycache__/
+**/__pycache__/
 imgui.ini
 palette.png
+*.hdr

@@ -20,8 +20,8 @@ $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and t
 - Surface reconstruction. (Done)
 - Add collision logic for walls (not only bottom). (Done)
 - Read configuration files. (Done)
-- Acceleration.
-- Finetuning.
+- Acceleration. (Done)
+- Finetuning. (Done)
 
 ## Examples:
 

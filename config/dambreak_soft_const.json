@@ -35,6 +35,6 @@
   "particles": 500000,
   "grids": 64,
   "out_dir": "dambreak_soft_const",
-  "sim_steps": 600,
+  "sim_steps": 200,
   "substeps": 200
 }

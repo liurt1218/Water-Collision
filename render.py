@@ -62,7 +62,10 @@ def render_rigid_body(particle_radii):
 
     offsets = S.rb_mesh_vert_offset.to_numpy()
     counts = S.rb_mesh_vert_count.to_numpy()
+    # f_offsets = S.rb_mesh_face_offset.to_numpy()
+    # f_counts = S.rb_mesh_face_count.to_numpy()
     all_vertices = S.mesh_vertices_t.detach().cpu().numpy()
+    # all_faces = S.mesh_local_faces.to_numpy()
 
     for i in range(S.n_rigid_bodies):
         start = offsets[i]
@@ -70,11 +73,12 @@ def render_rigid_body(particle_radii):
         vertices = all_vertices[start:end]
 
         mesh_with_data = rigid_surface_reconstruction(vertices, particle_radii[i])
+        # start = f_offsets[i]
+        # end = start + f_counts[i]
+        # triangles = all_faces[start:end] + 1
 
         mesh = bpy.data.meshes.new(f"RigidBodyMesh_{i}")
-        mesh.from_pydata(
-            mesh_with_data.mesh.vertices, [], mesh_with_data.mesh.triangles
-        )
+        mesh.from_pydata(mesh_with_data.mesh.vertices, [], mesh_with_data.mesh.triangles)
         mesh.update()
 
         obj = bpy.data.objects.new(f"RigidBody_{i}", mesh)
@@ -83,6 +87,30 @@ def render_rigid_body(particle_radii):
         mat = get_material_for_rigid(i)
         obj.data.materials.clear()
         obj.data.materials.append(mat)
+
+    wall_material = bpy.data.materials.new(name="WallMaterial")
+    wall_material.use_nodes = True
+    wall_material.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    wall_material.node_tree.nodes["Principled BSDF"].inputs["Metallic"].default_value = 0.0
+    wall_material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.0
+    wall_material.node_tree.nodes["Principled BSDF"].inputs["IOR"].default_value = 1.4
+    wall_material.node_tree.nodes["Principled BSDF"].inputs["Alpha"].default_value = 1.0
+    wall_material.node_tree.nodes["Principled BSDF"].inputs["Transmission Weight"].default_value = 0.97
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0.5, 0.37, 0.97), scale=(0.94, 0.7, 0.01))
+    wall = bpy.context.object
+    wall.data.materials.append(wall_material)
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0.5, 0.37, 0.03), scale=(0.94, 0.7, 0.01))
+    wall = bpy.context.object
+    wall.data.materials.append(wall_material)
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0.03, 0.37, 0.5), scale=(0.01, 0.7, 0.94))
+    wall = bpy.context.object
+    wall.data.materials.append(wall_material)
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0.97, 0.37, 0.5), scale=(0.01, 0.7, 0.94))
+    wall = bpy.context.object
+    wall.data.materials.append(wall_material)
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0.5, 0.02, 0.5), scale=(0.94, 0.01, 0.94))
+    wall = bpy.context.object
+    wall.data.materials.append(wall_material)
 
 
 def fluid_surface_reconstruction(particles):
@@ -130,15 +158,12 @@ def render_fluid():
 
         surf_material = bpy.data.materials.new(name=f"SurfMaterial_{i}")
         surf_material.use_nodes = True
-        surf_material.node_tree.nodes["Principled BSDF"].inputs[
-            "Base Color"
-        ].default_value = color
-        surf_material.node_tree.nodes["Principled BSDF"].inputs[
-            "Roughness"
-        ].default_value = 0.5
-        surf_material.node_tree.nodes["Principled BSDF"].inputs[
-            "Alpha"
-        ].default_value = 0.3
+        surf_material.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = color
+        surf_material.node_tree.nodes["Principled BSDF"].inputs["Metallic"].default_value = 0.0
+        surf_material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.0
+        surf_material.node_tree.nodes["Principled BSDF"].inputs["IOR"].default_value = 1.333
+        surf_material.node_tree.nodes["Principled BSDF"].inputs["Alpha"].default_value = 1.0
+        surf_material.node_tree.nodes["Principled BSDF"].inputs["Transmission Weight"].default_value = 1.0
 
         mesh = bpy.data.meshes.new(f"FluidMesh_{i}")
         mesh.from_pydata(
@@ -157,10 +182,10 @@ def render_frame(frame, output_dir, particle_radii):
 
     # Add a camera
     bpy.ops.object.camera_add(
-        location=(1.6, 1.0, 1.6), rotation=(-np.pi / 6, np.pi / 4, 0)
+        location=(1.6, 1.0, 1.6), rotation=(-np.pi / 8, np.pi / 4, 0)
     )
     camera = bpy.context.object
-    camera.data.lens = 20.0
+    camera.data.lens = 35.0
     bpy.context.scene.camera = camera
 
     # Add lighting
@@ -177,13 +202,24 @@ def render_frame(frame, output_dir, particle_radii):
     if C.n_particles > 0:
         render_fluid()
 
+    hdr_path = "assets/charolettenbrunn_park_4k.hdr"
+    world = bpy.data.worlds.new("World")
+    bpy.context.scene.world = world
+    world.use_nodes = True
+    nodes = world.node_tree.nodes
+    env_texture = nodes.new(type='ShaderNodeTexEnvironment')
+    env_texture.image = bpy.data.images.load(hdr_path)
+    background = nodes['Background']
+    world.node_tree.links.new(env_texture.outputs['Color'], background.inputs['Color'])
+
     # Set render settings
     bpy.context.scene.render.engine = "CYCLES"
     bpy.context.scene.cycles.samples = 128
-    bpy.context.scene.render.resolution_x = 1280
+    bpy.context.scene.render.resolution_x = 800
     bpy.context.scene.render.resolution_y = 720
     bpy.context.scene.render.filepath = f"frames/{output_dir}/frame_{frame:04d}.png"
     bpy.context.scene.render.image_settings.file_format = "PNG"
+    bpy.context.scene.render.image_settings.color_mode = 'RGBA'
 
     # Render the scene
     bpy.ops.render.render(write_still=True)

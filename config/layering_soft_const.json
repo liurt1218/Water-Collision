@@ -54,7 +54,7 @@
       "friction": 0.0
     }
   ],
-  "sim_steps": 600,
+  "sim_steps": 150,
   "substeps": 200,
   "out_dir": "layering_soft_const",
   "particles": 500000,

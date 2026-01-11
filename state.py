@@ -150,26 +150,32 @@ def init_rigid_fields(n_rigid: int):
 # Rigid-body mesh visualization (many rigid bodies)
 n_rigid_bodies: int = 0  # number of rigid bodies (for mesh)
 n_mesh_vertices: int = 0  # total number of triangle vertices
+n_mesh_faces: int = 0  # total number of triangle faces
 
 mesh_local_vertices = None  # Vector(3), shape = n_mesh_vertices
 mesh_local_normals = None  # Vector(3), shape = n_mesh_vertices
+mesh_local_faces = None  # Vector(3), shape = n_mesh_faces
 
 mesh_vertices = None  # Vector(3), shape = n_mesh_vertices
 mesh_normals = None  # Vector(3), shape = n_mesh_vertices
+mesh_faces = None  # Vector(3), shape = n_mesh_faces
 
 # Per-rigid vertex range in the shared buffer
 rb_mesh_vert_offset = None  # int field, shape = n_rigid_bodies
 rb_mesh_vert_count = None  # int field, shape = n_rigid_bodies
+rb_mesh_face_offset = None  # int field, shape = n_rigid_bodies
+rb_mesh_face_count = None  # int field, shape = n_rigid_bodies
 
 
-def init_rigid_mesh_fields(total_verts: int, n_rigid: int):
+def init_rigid_mesh_fields(total_verts: int, n_rigid: int, total_faces: int):
     # Allocate Taichi fields for rigid-body mesh visualization.
-    global n_mesh_vertices, n_rigid_bodies
-    global mesh_local_vertices, mesh_local_normals
-    global mesh_vertices, mesh_normals
-    global rb_mesh_vert_offset, rb_mesh_vert_count
+    global n_mesh_vertices, n_rigid_bodies, n_mesh_faces
+    global mesh_local_vertices, mesh_local_normals, mesh_local_faces
+    global mesh_vertices, mesh_normals, mesh_faces
+    global rb_mesh_vert_offset, rb_mesh_vert_count, rb_mesh_face_offset, rb_mesh_face_count
 
     n_mesh_vertices = total_verts
+    n_mesh_faces = total_faces
     n_rigid_bodies = n_rigid
 
     if n_mesh_vertices == 0 or n_rigid_bodies == 0:
@@ -178,13 +184,17 @@ def init_rigid_mesh_fields(total_verts: int, n_rigid: int):
     # Shared vertex buffers (triangle soup)
     mesh_local_vertices = ti.Vector.field(3, dtype=float, shape=n_mesh_vertices)
     mesh_local_normals = ti.Vector.field(3, dtype=float, shape=n_mesh_vertices)
+    mesh_local_faces = ti.Vector.field(3, dtype=int, shape=n_mesh_faces)
 
     mesh_vertices = ti.Vector.field(3, dtype=float, shape=n_mesh_vertices)
     mesh_normals = ti.Vector.field(3, dtype=float, shape=n_mesh_vertices)
+    mesh_faces = ti.Vector.field(3, dtype=int, shape=n_mesh_faces)
 
     # Per-rigid vertex ranges
     rb_mesh_vert_offset = ti.field(dtype=int, shape=n_rigid_bodies)
     rb_mesh_vert_count = ti.field(dtype=int, shape=n_rigid_bodies)
+    rb_mesh_face_offset = ti.field(dtype=int, shape=n_rigid_bodies)
+    rb_mesh_face_count = ti.field(dtype=int, shape=n_rigid_bodies)
 
 
 # PyTorch tensors
