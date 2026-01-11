@@ -150,6 +150,31 @@ def build_scene_from_config(name_to_id, cfg):
                     int("color" in fb.keys()),
                 )
             )
+
+        elif ftype == "mesh":
+            min_corner = ti.Vector(fb["min_corner"])
+            mat_name = fb["name"]
+            if mat_name not in name_to_id:
+                raise ValueError(f"Unknown fluid material name: {mat_name}")
+            mat_id = name_to_id[mat_name]
+
+            # Prefer scale (relative scale factors). For compatibility, allow size too.
+            scale = fb.get("scale", None)
+            size = fb.get("size", None)
+
+            blocks.append(
+                fluid.MeshVolume(
+                    fb["obj_path"],
+                    min_corner,
+                    mat_id,
+                    fb["kind"],
+                    fb.get("color", ti.Vector([0.0, 0.0, 0.0])),
+                    int("color" in fb.keys()),
+                    scale=scale,
+                    size=size,
+                )
+            )
+
         else:
             raise NotImplementedError(f"Unsupported fluid type: {ftype}")
     if len(blocks) > 0:

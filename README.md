@@ -21,7 +21,12 @@ $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and t
 - Add collision logic for walls (not only bottom). (Done)
 - Read configuration files. (Done)
 - Acceleration. (Done)
+<<<<<<< HEAD
 - Finetuning. (Done)
+=======
+- Supporting different fluids and initialization. (Done)
+- Finetuning.
+>>>>>>> a898ec1febea7de8a0fa09ce124d672d428005d7
 
 ## Examples:
 
@@ -55,3 +60,9 @@ $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and t
 ### Snow
 
 ![fall_snow_hard](examples/fall_snow_hard.gif)
+
+### Initializing Fluid Blocks with Different Shapes
+
+![flood_sphere](examples/flood_sphere.gif)
+![sticky_cow](examples/sticky_cow.gif)
+![bunny_jelly](examples/bunny_jelly.gif)

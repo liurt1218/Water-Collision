@@ -1,0 +1,33 @@
+{
+  "fluids": [
+    {
+      "type": "mesh",
+      "obj_path": "assets/bunny.obj",
+      "min_corner": [0.3, 0.2, 0.3],
+      "scale": [0.15, 0.15, 0.15],
+      "name": "jelly",
+      "rho": 1000,
+      "E": 1e5,
+      "nu": 0.49,
+      "kind": 1,
+      "eta": 0.0,
+      "color": [1.0, 1.0, 0.0]
+    }
+  ],
+  "rigids": [
+    {
+      "name": "rigid_1",
+      "obj_path": "assets/teapot.obj",
+      "position": [0.5, 0.6, 0.5],
+      "half_extents": [0.03, 0.03, 0.03],
+      "density": 2000.0,
+      "restitution": 0.2,
+      "friction": 0.1
+    }
+  ],
+  "particles": 50000,
+  "grids": 64,
+  "out_dir": "bunny_jelly",
+  "sim_steps": 200,
+  "substeps": 200
+}
