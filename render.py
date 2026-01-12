@@ -56,6 +56,45 @@ def get_material_for_rigid(i: int) -> bpy.types.Material:
     return mat
 
 
+def add_outer_walls(wall_material, thickness=0.02):
+    t = thickness
+
+    def add_wall(location, scale):
+        bpy.ops.mesh.primitive_cube_add(size=1, location=location, scale=scale)
+        obj = bpy.context.object
+        obj.data.materials.append(wall_material)
+
+    add_wall(
+        location=(0.5, 0.5, -t / 2),
+        scale=(1.0, 1.0, t),
+    )
+
+    add_wall(
+        location=(0.5, 0.5, 1 + t / 2),
+        scale=(1.0, 1.0, t),
+    )
+
+    add_wall(
+        location=(-t / 2, 0.5, 0.5),
+        scale=(t, 1.0, 1.0),
+    )
+
+    add_wall(
+        location=(1 + t / 2, 0.5, 0.5),
+        scale=(t, 1.0, 1.0),
+    )
+
+    add_wall(
+        location=(0.5, -t / 2, 0.5),
+        scale=(1.0, t, 1.0),
+    )
+
+    add_wall(
+        location=(0.5, 1 + t / 2, 0.5),
+        scale=(1.0, t, 1.0),
+    )
+
+
 def render_rigid_body(particle_radii):
     if S.n_mesh_vertices == 0 or S.n_rigid_bodies == 0:
         return
@@ -78,7 +117,9 @@ def render_rigid_body(particle_radii):
         # triangles = all_faces[start:end] + 1
 
         mesh = bpy.data.meshes.new(f"RigidBodyMesh_{i}")
-        mesh.from_pydata(mesh_with_data.mesh.vertices, [], mesh_with_data.mesh.triangles)
+        mesh.from_pydata(
+            mesh_with_data.mesh.vertices, [], mesh_with_data.mesh.triangles
+        )
         mesh.update()
 
         obj = bpy.data.objects.new(f"RigidBody_{i}", mesh)
@@ -90,27 +131,21 @@ def render_rigid_body(particle_radii):
 
     wall_material = bpy.data.materials.new(name="WallMaterial")
     wall_material.use_nodes = True
-    wall_material.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (1.0, 1.0, 1.0, 1.0)
-    wall_material.node_tree.nodes["Principled BSDF"].inputs["Metallic"].default_value = 0.0
-    wall_material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.0
+    wall_material.node_tree.nodes["Principled BSDF"].inputs[
+        "Base Color"
+    ].default_value = (1.0, 1.0, 1.0, 1.0)
+    wall_material.node_tree.nodes["Principled BSDF"].inputs[
+        "Metallic"
+    ].default_value = 0.0
+    wall_material.node_tree.nodes["Principled BSDF"].inputs[
+        "Roughness"
+    ].default_value = 0.0
     wall_material.node_tree.nodes["Principled BSDF"].inputs["IOR"].default_value = 1.4
     wall_material.node_tree.nodes["Principled BSDF"].inputs["Alpha"].default_value = 1.0
-    wall_material.node_tree.nodes["Principled BSDF"].inputs["Transmission Weight"].default_value = 0.97
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(0.5, 0.37, 0.97), scale=(0.94, 0.7, 0.01))
-    wall = bpy.context.object
-    wall.data.materials.append(wall_material)
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(0.5, 0.37, 0.03), scale=(0.94, 0.7, 0.01))
-    wall = bpy.context.object
-    wall.data.materials.append(wall_material)
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(0.03, 0.37, 0.5), scale=(0.01, 0.7, 0.94))
-    wall = bpy.context.object
-    wall.data.materials.append(wall_material)
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(0.97, 0.37, 0.5), scale=(0.01, 0.7, 0.94))
-    wall = bpy.context.object
-    wall.data.materials.append(wall_material)
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(0.5, 0.02, 0.5), scale=(0.94, 0.01, 0.94))
-    wall = bpy.context.object
-    wall.data.materials.append(wall_material)
+    wall_material.node_tree.nodes["Principled BSDF"].inputs[
+        "Transmission Weight"
+    ].default_value = 0.97
+    add_outer_walls(wall_material, thickness=0.02)
 
 
 def fluid_surface_reconstruction(particles):
@@ -158,12 +193,24 @@ def render_fluid():
 
         surf_material = bpy.data.materials.new(name=f"SurfMaterial_{i}")
         surf_material.use_nodes = True
-        surf_material.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = color
-        surf_material.node_tree.nodes["Principled BSDF"].inputs["Metallic"].default_value = 0.0
-        surf_material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.0
-        surf_material.node_tree.nodes["Principled BSDF"].inputs["IOR"].default_value = 1.333
-        surf_material.node_tree.nodes["Principled BSDF"].inputs["Alpha"].default_value = 1.0
-        surf_material.node_tree.nodes["Principled BSDF"].inputs["Transmission Weight"].default_value = 1.0
+        surf_material.node_tree.nodes["Principled BSDF"].inputs[
+            "Base Color"
+        ].default_value = color
+        surf_material.node_tree.nodes["Principled BSDF"].inputs[
+            "Metallic"
+        ].default_value = 0.0
+        surf_material.node_tree.nodes["Principled BSDF"].inputs[
+            "Roughness"
+        ].default_value = 0.0
+        surf_material.node_tree.nodes["Principled BSDF"].inputs[
+            "IOR"
+        ].default_value = 1.333
+        surf_material.node_tree.nodes["Principled BSDF"].inputs[
+            "Alpha"
+        ].default_value = 1.0
+        surf_material.node_tree.nodes["Principled BSDF"].inputs[
+            "Transmission Weight"
+        ].default_value = 1.0
 
         mesh = bpy.data.meshes.new(f"FluidMesh_{i}")
         mesh.from_pydata(
@@ -207,10 +254,10 @@ def render_frame(frame, output_dir, particle_radii):
     bpy.context.scene.world = world
     world.use_nodes = True
     nodes = world.node_tree.nodes
-    env_texture = nodes.new(type='ShaderNodeTexEnvironment')
+    env_texture = nodes.new(type="ShaderNodeTexEnvironment")
     env_texture.image = bpy.data.images.load(hdr_path)
-    background = nodes['Background']
-    world.node_tree.links.new(env_texture.outputs['Color'], background.inputs['Color'])
+    background = nodes["Background"]
+    world.node_tree.links.new(env_texture.outputs["Color"], background.inputs["Color"])
 
     # Set render settings
     bpy.context.scene.render.engine = "CYCLES"
@@ -219,7 +266,7 @@ def render_frame(frame, output_dir, particle_radii):
     bpy.context.scene.render.resolution_y = 720
     bpy.context.scene.render.filepath = f"frames/{output_dir}/frame_{frame:04d}.png"
     bpy.context.scene.render.image_settings.file_format = "PNG"
-    bpy.context.scene.render.image_settings.color_mode = 'RGBA'
+    bpy.context.scene.render.image_settings.color_mode = "RGBA"
 
     # Render the scene
     bpy.ops.render.render(write_still=True)
