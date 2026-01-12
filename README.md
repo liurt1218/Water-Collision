@@ -21,12 +21,8 @@ $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and t
 - Add collision logic for walls (not only bottom). (Done)
 - Read configuration files. (Done)
 - Acceleration. (Done)
-<<<<<<< HEAD
-- Finetuning. (Done)
-=======
 - Supporting different fluids and initialization. (Done)
-- Finetuning.
->>>>>>> a898ec1febea7de8a0fa09ce124d672d428005d7
+- Finetuning. (Done)
 
 ## Examples:
 
