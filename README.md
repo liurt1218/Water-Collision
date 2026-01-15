@@ -9,9 +9,27 @@
 
 ## How to run:
 
+$\quad$ The simulation requires a GPU-enabled environment.
+
+```bash
+conda create -n Water-Collision python=3.11
+conda activate Water-Collision
+pip install taichi torch tqdm ninja pysplashsurf
+
+# install bpy for rendering
+wget https://download.blender.org/pypi/bpy/bpy-5.0.0-cp311-cp311-manylinux_2_28_x86_64.whl
+pip install bpy-5.0.0-cp311-cp311-manylinux_2_28_x86_64.whl
+```
+
+$\quad$ Note that `bpy` may require additional system-level dependencies, which can be installed using `apt`.
+
+$\quad$ Use the following command to run the simulation:
+
 ```bash
 python main.py --scene-config config/dambreak_hard_const.json
 ```
+
+The file `dambreak_hard_const.json` can be replaced with any other `.json` configuration under the `config/` directory. Users may also define and use their own customized scene configuration files.
 
 $\quad$ The frames will be exported to `frames/<out_dir>/frames_{%4d}.png` and the rendering result to `renderings/<out_dir>.mp4`.
 
